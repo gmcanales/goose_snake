@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 36" width="40" height="36">
+  <!-- Body -->
+  <rect x="2" y="14" width="36" height="18" rx="4" fill="#d03020" stroke="#8a1810" stroke-width="1.5"/>
+  <!-- Cabin -->
+  <rect x="7" y="6" width="24" height="13" rx="3" fill="#b02818"/>
+  <!-- Windows -->
+  <rect x="9"  y="8" width="9" height="8" rx="1.5" fill="#88ccff" opacity="0.85"/>
+  <rect x="21" y="8" width="7" height="8" rx="1.5" fill="#88ccff" opacity="0.85"/>
+  <!-- Wheels -->
+  <circle cx="10" cy="34" r="5" fill="#222" stroke="#555" stroke-width="1"/>
+  <circle cx="30" cy="34" r="5" fill="#222" stroke="#555" stroke-width="1"/>
+  <circle cx="10" cy="34" r="2" fill="#555"/>
+  <circle cx="30" cy="34" r="2" fill="#555"/>
+  <!-- Headlights (front = left since car moves left) -->
+  <rect x="2" y="18" width="4" height="6" rx="1" fill="#ffee88" opacity="0.9"/>
+</svg>

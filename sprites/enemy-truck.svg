@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 36" width="80" height="36">
+  <!-- Trailer -->
+  <rect x="26" y="10" width="52" height="22" rx="2" fill="#8a6030" stroke="#5a3810" stroke-width="1.5"/>
+  <!-- Trailer detail lines -->
+  <line x1="40" y1="10" x2="40" y2="32" stroke="#5a3810" stroke-width="1" opacity="0.5"/>
+  <line x1="55" y1="10" x2="55" y2="32" stroke="#5a3810" stroke-width="1" opacity="0.5"/>
+  <line x1="70" y1="10" x2="70" y2="32" stroke="#5a3810" stroke-width="1" opacity="0.5"/>
+  <!-- Cab -->
+  <rect x="2" y="8" width="28" height="24" rx="4" fill="#c07828" stroke="#8a5018" stroke-width="1.5"/>
+  <!-- Cab window -->
+  <rect x="5" y="11" width="12" height="10" rx="2" fill="#88ccff" opacity="0.85"/>
+  <rect x="19" y="11" width="8"  height="8"  rx="1" fill="#88ccff" opacity="0.6"/>
+  <!-- Wheels -->
+  <circle cx="12" cy="34" r="5" fill="#222" stroke="#555" stroke-width="1"/>
+  <circle cx="36" cy="34" r="5" fill="#222" stroke="#555" stroke-width="1"/>
+  <circle cx="60" cy="34" r="5" fill="#222" stroke="#555" stroke-width="1"/>
+  <circle cx="12" cy="34" r="2" fill="#555"/>
+  <circle cx="36" cy="34" r="2" fill="#555"/>
+  <circle cx="60" cy="34" r="2" fill="#555"/>
+  <!-- Headlights -->
+  <rect x="2" y="16" width="4" height="8" rx="1" fill="#ffee88" opacity="0.9"/>
+</svg>

@@ -1,18 +1,105 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Goose Snake</title>
+  <link rel="preconnect" href="https://api.fontshare.com" />
+  <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=satoshi@900,700,500,400&display=swap" />
   <link rel="stylesheet" href="./style.css" />
 </head>
+
 <body>
+  <button id="dev-toggle">DEV</button>
+
   <div id="game-container">
-    <h1>🪿 Goose Snake</h1>
-    <canvas id="game-canvas" width="480" height="480"></canvas>
-    <div id="score-display">Score: <span id="score">0</span></div>
+    <h1>𓅬 Goooooose</h1>
+    <div id="phaser-wrap">
+      <div id="phaser-container"></div>
+      <div id="section-splash">
+        <span class="num"></span>
+        <span class="title"></span>
+      </div>
+    </div>
+    <div id="hud-row">
+      <div id="score-display">Score: <span id="score">0</span></div>
+      <div id="level-display">Level: <span id="level">1</span></div>
+      <div id="timer-display">⏱ <span id="timer">60</span>s</div>
+      <div id="length-display">Length: <span id="length">4</span></div>
+      <div id="distance-display">Distance: <span id="distance">0</span></div>
+    </div>
+    <div id="effects-bar"></div>
+    <p id="game-message"></p>
     <button id="start-btn">Start</button>
+    <p id="controls-hint">Arrow keys or WASD &nbsp;·&nbsp; ` for dev console</p>
   </div>
+
+  <!-- ── Dev console panel ── -->
+  <aside id="dev-panel">
+    <h2>Dev Console</h2>
+
+    <section class="dev-group">
+      <h3>Quick Actions</h3>
+      <div class="dev-row">
+        <label>Jump to level</label>
+        <input id="dev-level-input" type="number" min="1" value="10" />
+        <button id="dev-jump-level">Go</button>
+      </div>
+      <div class="dev-row">
+        <label>Spawn snack</label>
+        <select id="dev-snack-type">
+          <option value="bread">bread</option>
+          <option value="speed">speed</option>
+          <option value="slow">slow</option>
+          <option value="shrink">shrink</option>
+          <option value="star">star</option>
+        </select>
+        <button id="dev-spawn-snack">Spawn</button>
+      </div>
+      <div class="dev-row">
+        <label>Change length</label>
+        <input id="dev-length-input" type="number" value="5" />
+        <button id="dev-add-length">Apply</button>
+      </div>
+      <div class="dev-row dev-row-buttons">
+        <button id="dev-god">God Mode: OFF</button>
+        <button id="dev-pause">Pause</button>
+      </div>
+      <div class="dev-row dev-row-buttons">
+        <button id="dev-clear-fx">Clear Effects</button>
+        <button id="dev-clear-obstacles">Clear Obstacles</button>
+      </div>
+    </section>
+
+    <section class="dev-group">
+      <h3>Live Config (JSON)</h3>
+      <p class="dev-hint">Edits apply immediately. Speed/weights take effect next tick; level-up params on next level.
+      </p>
+      <textarea id="dev-json" spellcheck="false"></textarea>
+      <div class="dev-row dev-row-buttons">
+        <button id="dev-apply-json" class="primary">Apply</button>
+        <button id="dev-show-json">Reload</button>
+        <button id="dev-reset">Reset Defaults</button>
+      </div>
+      <div class="dev-row dev-row-buttons">
+        <button id="dev-save">Save</button>
+        <button id="dev-clear-save">Clear Saved</button>
+        <button id="dev-download">Download JSON</button>
+        <label class="dev-file-btn">
+          Upload JSON
+          <input id="dev-upload" type="file" accept=".json,application/json" />
+        </label>
+      </div>
+      <div id="dev-status"></div>
+    </section>
+  </aside>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script src="./config.js"></script>
+  <script src="./sprites.js"></script>
   <script src="./game.js"></script>
+  <script src="./dev-console.js"></script>
 </body>
+
 </html>
