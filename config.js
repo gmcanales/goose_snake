@@ -56,13 +56,26 @@ const DEFAULT_CONFIG = {
   baseFoodCount: 1,
   maxFoodCount:  3,
 
-  // Frogger mode (infinite scroll)
+  // Frogger mode (infinite scroll, multi-segment road with turns)
   frogger: {
     enemySpeedMin:    1.8,
     enemySpeedMax:    5.0,
     spawnIntervalMin: 1500,
     spawnIntervalMax: 4000,
     truckProbability: 0.55,
+    // Lane count grows with distance. minLanes at start, +1 each
+    // laneIncreaseDistance cells of forward progress, capped at maxLanes.
+    minLanes: 4,
+    maxLanes: 10,
+    laneIncreaseDistance: 500,
+    // Each lane is this many cells wide perpendicular to road direction.
+    // Cars fill the full lane width. Total road width = lanes × laneWidthCells.
+    // Cap maxLanes × laneWidthCells ≤ 20 (canvas) for clean rendering.
+    laneWidthCells: 2,
+    // Road bends 90° at random intervals; player auto-orients to new direction.
+    // turnIntervalMin/Max = cells of forward progress between turns.
+    turnIntervalMin: 120,
+    turnIntervalMax: 240,
     // Difficulty ramps every N cells of forward distance reached.
     // Each step adds speedBonus to enemy speed and divides spawn interval
     // by (1 + spawnSpeedup × step).
@@ -82,13 +95,26 @@ const DEFAULT_CONFIG = {
 // Live mutable config — game reads from here
 const CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
+// Deep-merge so saved configs from older versions keep getting any new default
+// keys we add later (e.g. CONFIG.frogger gained minLanes/turnIntervalMin in
+// the multi-segment refactor — a shallow Object.assign would have wiped them).
+function deepMerge(target, source) {
+  for (const k of Object.keys(source)) {
+    const sv = source[k];
+    if (sv !== null && typeof sv === 'object' && !Array.isArray(sv)) {
+      if (target[k] == null || typeof target[k] !== 'object' || Array.isArray(target[k])) target[k] = {};
+      deepMerge(target[k], sv);
+    } else {
+      target[k] = sv;
+    }
+  }
+  return target;
+}
+
 // Restore from localStorage if a saved override exists
 try {
   const saved = localStorage.getItem('gooseConfig');
-  if (saved) {
-    const parsed = JSON.parse(saved);
-    Object.assign(CONFIG, parsed);
-  }
+  if (saved) deepMerge(CONFIG, JSON.parse(saved));
 } catch (e) {
   console.warn('Failed to load saved config:', e);
 }

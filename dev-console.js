@@ -140,6 +140,20 @@
     withScene(s => { s.obstacles = []; }, 'Obstacles cleared');
   });
 
+  document.getElementById('dev-force-turn').addEventListener('click', () => {
+    withScene(s => {
+      if (!s.froggerMode) throw new Error('Not in frogger mode');
+      s.turn();
+    }, 'Road turned');
+  });
+
+  document.getElementById('dev-clear-enemies').addEventListener('click', () => {
+    withScene(s => {
+      for (const e of s.activeEnemies) { e.sprite.setVisible(false); s.enemyPool.push(e.sprite); }
+      s.activeEnemies = [];
+    }, 'Enemies cleared');
+  });
+
   document.getElementById('dev-show-json').addEventListener('click', () => {
     syncJsonFromConfig();
     flash('JSON refreshed from live config');

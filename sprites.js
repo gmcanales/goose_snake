@@ -15,6 +15,23 @@ const SPRITES = {
   <circle cx="24.5" cy="11.5" r="1.6" fill="white"/>
 </svg>`,
 
+  'goose-neck': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <circle cx="20" cy="20" r="18" fill="#f4f0e4" stroke="#c8be9a" stroke-width="1.2"/>
+  <ellipse cx="22" cy="16" rx="5"   ry="1.6" fill="#ffffff" opacity="0.55"/>
+  <ellipse cx="18" cy="24" rx="4"   ry="1.2" fill="#d8d0b8" opacity="0.6"/>
+  <ellipse cx="14" cy="19" rx="2.5" ry="0.8" fill="#bcb4a0" opacity="0.4"/>
+</svg>`,
+
+  'goose-tail': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <polygon points="2,16 13,13 14,20 4,21" fill="#3a2a18" stroke="#1a1208" stroke-width="0.6"/>
+  <polygon points="3,22 14,20 13,27 5,28" fill="#3a2a18" stroke="#1a1208" stroke-width="0.6"/>
+  <polygon points="5,12 14,12 12,17 7,17" fill="#5a4828" opacity="0.9"/>
+  <polygon points="6,27 14,26 12,31 7,30" fill="#5a4828" opacity="0.9"/>
+  <circle cx="24" cy="20" r="15" fill="#f4f0e4" stroke="#c8be9a" stroke-width="1.2"/>
+  <ellipse cx="26" cy="17" rx="4" ry="1.4" fill="#ffffff" opacity="0.55"/>
+  <ellipse cx="22" cy="23" rx="3" ry="1"   fill="#d8d0b8" opacity="0.6"/>
+</svg>`,
+
   'snack-bread': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
   <rect x="5" y="9" width="30" height="24" rx="5" fill="#d4952b" stroke="#a06820" stroke-width="1.5"/>
   <ellipse cx="20" cy="11" rx="11" ry="5" fill="#c07820"/>

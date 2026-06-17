@@ -26,6 +26,38 @@ const ctrlHintEl = document.getElementById('controls-hint');
 const SNAKE_HINT = 'Arrow keys or WASD  ·  ` for dev console';
 const FROGGER_HINT = '↑↓ to dodge  ·  always advancing';
 
+// Direction-aware control hint for frogger.
+function froggerHintFor(dir) {
+  const horizontal = dir && dir.x !== 0;
+  return horizontal
+    ? 'Up/Down to dodge  ·  always advancing'
+    : 'Left/Right to dodge  ·  always advancing';
+}
+
+// 90° rotations for picking turn direction
+const TURN_CW  = (d) => ({ x: -d.y, y:  d.x });
+const TURN_CCW = (d) => ({ x:  d.y, y: -d.x });
+// Perpendicular vector (sideways along road)
+const PERP = (d) => TURN_CW(d);
+
+// Deterministic 2D hash → [0, 1). Used for tree placement so the same world
+// cell always gets the same tree (or no tree), making the scenery stable as
+// the camera revisits an area, but appearing random across the world.
+function hash2D(x, y) {
+  let h = Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h = h ^ (h >>> 16);
+  return (h >>> 0) / 0x100000000;
+}
+
+// Cell-coordinate range of the road perpendicular axis (offsets from perpCenter).
+// 4 lanes × 1 width → top=-2 bot=1; 4 lanes × 2 width → top=-4 bot=3.
+function laneOffsetRange(count, width = 1) {
+  const total = count * width;
+  const top = -Math.floor(total / 2);
+  return { top, bot: top + total - 1 };
+}
+
 let gameScene = null;
 
 // ── Phaser Scene ───────────────────────────────────────────
@@ -34,7 +66,8 @@ class GooseScene extends Phaser.Scene {
 
   preload() {
     const keys = [
-      'goose-head', 'snack-bread', 'snack-speed', 'snack-slow',
+      'goose-head', 'goose-neck', 'goose-tail',
+      'snack-bread', 'snack-speed', 'snack-slow',
       'snack-shrink', 'snack-star', 'enemy-car', 'enemy-truck',
     ];
     for (const k of keys) this.load.image(k, spriteDataURI(k));
@@ -43,12 +76,18 @@ class GooseScene extends Phaser.Scene {
 
   create() {
     gameScene = this;
+    window.gameScene = this; // for cross-script access (end-game modal)
 
     this.bgGfx = this.add.graphics().setDepth(0);   // static — snake area
     this.dynBgGfx = this.add.graphics().setDepth(1);   // dynamic — frogger road, redrawn per frame
     this.gameGfx = this.add.graphics().setDepth(2);   // game elements (snake, walls, obstacles)
 
     this.headImg = this.add.image(-100, -100, 'goose-head').setDepth(6).setVisible(false);
+
+    // Body segments are rendered as pooled SVG sprites (neck for intermediate
+    // cells, tail for the last cell). Pool grows as the goose grows, shrinks
+    // by hiding (not destroying) when the goose shrinks.
+    this.bodySprites = [];
 
     this.snake = null;
     this.foods = [];
@@ -69,8 +108,15 @@ class GooseScene extends Phaser.Scene {
 
     // Frogger movement: head auto-advances right every tick; ↑/↓ queues a
     // one-cell vertical change consumed on the next tick.
-    this.queuedVertical = 0;
-    this.invulnTicks = 0;
+    this.queuedVertical = 0;          // legacy, retained for snake-mode parity
+    this.queuedDodge    = { x: 0, y: 0 }; // frogger 2D dodge
+    this.invulnTicks    = 0;
+
+    // Frogger segments (created on entering frogger mode)
+    this.segments           = [];
+    this.activeSegmentIdx   = 0;
+    this.distInSegment      = 0;
+    this.distCompletedSegs  = 0;
 
     // Section splash invalidation token — newer splashes override older
     // pending resume callbacks (e.g. user restarts mid-splash).
@@ -79,6 +125,8 @@ class GooseScene extends Phaser.Scene {
     // Timed growth round (level 5): countdown ms remaining or null when inactive.
     // Delta-based so the splash pause and dev-pause don't drain real-time clock.
     this.timeLeftInRound = null;
+    // Last 10s bucket announced via the milestone flash (60s → bucket 6 ...).
+    this.lastTimerFlashBucket = 0;
 
     this.lastTickTime = 0;
     this.prevCells = [];
@@ -101,10 +149,13 @@ class GooseScene extends Phaser.Scene {
     if (!this.snake) return;
 
     if (this.froggerMode) {
-      // Camera follow — no right clamp (world is infinite)
+      // Camera follows player's world position on both axes (road can bend)
       if (this.running) {
-        const targetX = Math.max(0, this.snake.x * CELL - W / 2 + CELL / 2);
-        this.cameras.main.scrollX = Phaser.Math.Linear(this.cameras.main.scrollX, targetX, 0.12);
+        const targetX = this.snake.x * CELL - W / 2 + CELL / 2;
+        const targetY = this.snake.y * CELL - H / 2 + CELL / 2;
+        const cam = this.cameras.main;
+        cam.scrollX = Phaser.Math.Linear(cam.scrollX, targetX, 0.12);
+        cam.scrollY = Phaser.Math.Linear(cam.scrollY, targetY, 0.12);
         this.updateEnemies(delta, time);
       }
       this.drawDynamicRoad();
@@ -124,6 +175,12 @@ class GooseScene extends Phaser.Scene {
         this.startFroggerMode();
       } else {
         timerEl.textContent = Math.ceil(this.timeLeftInRound / 1000);
+        // Flash a "KEEP EATING — Ns" message each time we cross a 10s bucket
+        const bucket = Math.ceil(this.timeLeftInRound / 10000);
+        if (bucket < this.lastTimerFlashBucket && bucket > 0) {
+          this.lastTimerFlashBucket = bucket;
+          this.flashTimerMilestone(bucket * 10);
+        }
       }
     }
 
@@ -143,10 +200,20 @@ class GooseScene extends Phaser.Scene {
   handleKey(e) {
     if (!this.running || !this.snake) return;
 
-    // Frogger: only vertical input matters; head auto-advances right
+    // Frogger: dodge keys depend on travel direction.
+    //   Horizontal travel (left/right) → ↑↓ to dodge perpendicular
+    //   Vertical travel (up/down)      → ←→ to dodge perpendicular
     if (this.froggerMode) {
-      if (e.code === 'ArrowUp' || e.code === 'KeyW') this.queuedVertical = -1;
-      else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.queuedVertical = 1;
+      const seg = this.activeSegment();
+      if (!seg) return;
+      const horizontal = seg.dir.x !== 0;
+      if (horizontal) {
+        if (e.code === 'ArrowUp'   || e.code === 'KeyW') this.queuedDodge = { x: 0, y: -1 };
+        else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.queuedDodge = { x: 0, y:  1 };
+      } else {
+        if (e.code === 'ArrowLeft'  || e.code === 'KeyA') this.queuedDodge = { x: -1, y: 0 };
+        else if (e.code === 'ArrowRight' || e.code === 'KeyD') this.queuedDodge = { x:  1, y: 0 };
+      }
       return;
     }
 
@@ -168,6 +235,7 @@ class GooseScene extends Phaser.Scene {
 
   // ── Game start ─────────────────────────────────────────
   startGame() {
+    if (typeof window.hideEndGameModal === 'function') window.hideEndGameModal();
     for (const f of this.foods) f.sprite?.destroy();
     for (const e of this.activeEnemies) { e.sprite.setVisible(false); this.enemyPool.push(e.sprite); }
     this.foods = [];
@@ -184,7 +252,12 @@ class GooseScene extends Phaser.Scene {
     this.nextDx = 1;
     this.nextDy = 0;
     this.queuedVertical = 0;
+    this.queuedDodge    = { x: 0, y: 0 };
     this.invulnTicks = 0;
+    this.segments          = [];
+    this.activeSegmentIdx  = 0;
+    this.distInSegment     = 0;
+    this.distCompletedSegs = 0;
     this.score = 0;
     this.level = 1;
     this.snacksEaten = 0;
@@ -193,6 +266,7 @@ class GooseScene extends Phaser.Scene {
     this.running = true;
     this.lastTickTime = this.time.now;
     this.timeLeftInRound = null;
+    this.lastTimerFlashBucket = 0;
 
     this.cameras.main.setBounds(0, 0, W, H);
     this.cameras.main.setScroll(0, 0);
@@ -210,6 +284,8 @@ class GooseScene extends Phaser.Scene {
     effectsEl.innerHTML = '';
 
     this.headImg.setVisible(false);
+    for (const sp of this.bodySprites) sp.setVisible(false);
+    this.bgGfx.setVisible(true); // snake-area bg is hidden in frogger mode
     this.drawBackground();
     this.spawnMissingFood();
     startBtn.textContent = 'Restart';
@@ -221,6 +297,19 @@ class GooseScene extends Phaser.Scene {
   // Pauses the game, plays the CSS keyframe animation, resumes after.
   // Uses a token so a fresh start mid-splash doesn't accidentally un-pause
   // an obsolete previous splash's resume callback.
+  // Briefly flash "KEEP EATING — Ns" over the canvas at each 10s milestone
+  // during the growth round. Does NOT pause the game (unlike showSectionSplash).
+  // Last call ≤10s uses the 'urgent' (red) styling.
+  flashTimerMilestone(seconds) {
+    const el = document.getElementById('timer-flash');
+    if (!el) return;
+    el.querySelector('.num').textContent = `${seconds}s`;
+    el.classList.toggle('urgent', seconds <= 10);
+    el.classList.remove('show');
+    void el.offsetWidth;  // restart animation
+    el.classList.add('show');
+  }
+
   showSectionSplash(num, title, kind) {
     const el = document.getElementById('section-splash');
     const num$ = el.querySelector('.num');
@@ -258,10 +347,12 @@ class GooseScene extends Phaser.Scene {
     this.prevCells = s.cells.map(c => ({ ...c }));
 
     if (this.froggerMode) {
-      // Auto-runner: head advances right every tick; queued ↑/↓ steers
-      s.dx = 1;
-      s.dy = this.queuedVertical;
-      this.queuedVertical = 0;
+      // Auto-runner: head advances along segment direction; queued dodge
+      // moves perpendicular. Forward axis always moves 1 cell per tick.
+      const seg = this.activeSegment();
+      s.dx = seg.dir.x + this.queuedDodge.x;
+      s.dy = seg.dir.y + this.queuedDodge.y;
+      this.queuedDodge = { x: 0, y: 0 };
     } else {
       s.dx = this.nextDx;
       s.dy = this.nextDy;
@@ -271,16 +362,28 @@ class GooseScene extends Phaser.Scene {
     s.y += s.dy;
 
     if (this.froggerMode) {
-      // Top/bottom walls clamp (no death); left can't be hit due to forced dx=1
-      s.y = Phaser.Math.Clamp(s.y, 1, ROWS - 2);
-      // Distance scoring — only new max-forward cells count
-      const dist = Math.max(0, s.x - this.frogStartX);
-      if (dist > this.maxDistance) {
-        this.score += (dist - this.maxDistance) * (CONFIG.distancePointsPerCell ?? 1);
-        this.maxDistance = dist;
-        scoreEl.textContent = this.score;
+      const seg = this.activeSegment();
+      const horizontal = seg.dir.x !== 0;
+      const perpAxis   = horizontal ? 'y' : 'x';
+      const lw = CONFIG.frogger.laneWidthCells ?? 1;
+      const { top, bot } = laneOffsetRange(seg.lanes, lw);
+      // Clamp to perpendicular road range (top/bottom walls — no death, just bump)
+      const off = s[perpAxis] - seg.perpCenter;
+      if (off < top) s[perpAxis] = seg.perpCenter + top;
+      else if (off > bot) s[perpAxis] = seg.perpCenter + bot;
+
+      // Forward progress in current segment
+      this.distInSegment += 1;
+      const total = this.distCompletedSegs + this.distInSegment;
+      if (total > this.maxDistance) {
+        this.score += (total - this.maxDistance) * (CONFIG.distancePointsPerCell ?? 1);
+        this.maxDistance = total;
+        scoreEl.textContent    = this.score;
         distanceEl.textContent = this.maxDistance;
       }
+
+      // Time to turn?
+      if (this.distInSegment >= seg.length) this.turn();
     } else {
       if (s.x < 0) s.x = COLS - 1;
       else if (s.x >= COLS) s.x = 0;
@@ -421,6 +524,7 @@ class GooseScene extends Phaser.Scene {
   // the delta-based timeLeftInRound hits 0 (see update()).
   startTimedRound() {
     this.timeLeftInRound = CONFIG.finalLevelDurationMs ?? 60000;
+    this.lastTimerFlashBucket = Math.ceil(this.timeLeftInRound / 10000);
     timerEl.textContent = Math.ceil(this.timeLeftInRound / 1000);
     timerDispEl.classList.add('show');
 
@@ -434,46 +538,128 @@ class GooseScene extends Phaser.Scene {
     });
   }
 
-  // ── Frogger mode ───────────────────────────────────────
+  // ── Frogger mode (segment-based, direction-aware) ─────
   startFroggerMode() {
     this.froggerMode = true;
 
     for (const f of this.foods) f.sprite?.destroy();
     this.foods = [];
 
-    // Infinite right scroll
-    this.cameras.main.setBounds(0, 0, CAM_BOUND_W, H);
+    // World bounds large enough for play in any direction
+    this.cameras.main.setBounds(-1e7, -1e7, 2e7, 2e7);
 
-    // Distance tracking anchored at entry point — only forward progress scores
-    this.frogStartX = this.snake.x;
-    this.maxDistance = 0;
+    // Hide snake-area background — frogger world is its own thing
+    this.bgGfx.setVisible(false);
+
+    // Distance: cumulative forward progress across segments
+    this.distCompletedSegs = 0;     // distance from completed segments
+    this.distInSegment     = 0;     // forward cells in active segment
+    this.maxDistance       = 0;
     distanceEl.textContent = 0;
     distDispEl.classList.add('show');
 
-    // Length doubles as HP in frogger mode
+    // Length doubles as HP
     lengthEl.textContent = this.snake.maxCells;
     lenDispEl.classList.add('show');
-    ctrlHintEl.textContent = FROGGER_HINT;
 
-    // Reset auto-runner input state
-    this.queuedVertical = 0;
+    // Direction & first segment — start going right from current snake pos
+    const startDir = { x: 1, y: 0 };
+    this.segments        = [];
+    this.activeSegmentIdx = 0;
+    this.segments.push(this.makeSegment(startDir, this.snake.x, this.snake.y));
+    // Pre-generate the next segment so the bend is rendered before the camera
+    // catches up to it — prevents the road from popping in at the corner.
+    this.appendNextSegment();
+
+    // Per-direction input state
+    this.queuedDodge = { x: 0, y: 0 };
     this.invulnTicks = 0;
 
-    this.drawBackground();
+    // Clear any pre-existing enemies (snake-mode might have left state)
+    for (const e of this.activeEnemies) { e.sprite.setVisible(false); this.enemyPool.push(e.sprite); }
+    this.activeEnemies = [];
+    this.lastEnemySpawn = {};
+    this.rebuildLanesForActiveSegment();
 
-    const fcfg = CONFIG.frogger;
-    this.lanes = [];
-    for (let row = 1; row < ROWS - 1; row++) {
-      this.lanes.push({
-        row,
-        speed: fcfg.enemySpeedMin + Math.random() * (fcfg.enemySpeedMax - fcfg.enemySpeedMin),
-        type: Math.random() < fcfg.truckProbability ? 'truck' : 'car',
-        interval: fcfg.spawnIntervalMin + Math.random() * (fcfg.spawnIntervalMax - fcfg.spawnIntervalMin),
-      });
-      this.lastEnemySpawn[row] = this.time.now - Math.random() * 2000;
-    }
+    ctrlHintEl.textContent = froggerHintFor(startDir);
 
     this.showSectionSplash(2, 'DODGE', 'dodge');
+  }
+
+  // ── Segment management ────────────────────────────────
+  // Each segment is one straight piece of road. Lane count is the count at
+  // segment creation (changes between segments, not within one).
+  makeSegment(dir, originCellX, originCellY) {
+    const fcfg = CONFIG.frogger;
+    const lanes = this.currentLaneCount();
+    const length = Math.floor(
+      fcfg.turnIntervalMin + Math.random() * (fcfg.turnIntervalMax - fcfg.turnIntervalMin)
+    );
+    // perpCenter is the cell coord along the perp axis at segment start
+    const perpCenter = (dir.x !== 0) ? originCellY : originCellX;
+    return { dir, originCellX, originCellY, perpCenter, lanes, length };
+  }
+
+  activeSegment() { return this.segments[this.activeSegmentIdx]; }
+
+  // Append a new segment after the last one, bending 90° from its direction.
+  // Used at frogger start and after every turn — guarantees the next segment
+  // is rendered ahead of the camera before the player arrives at its origin.
+  appendNextSegment() {
+    const last = this.segments[this.segments.length - 1];
+    const endX = last.originCellX + last.dir.x * last.length;
+    const endY = last.originCellY + last.dir.y * last.length;
+    const nextDir = (Math.random() < 0.5 ? TURN_CW : TURN_CCW)(last.dir);
+    this.segments.push(this.makeSegment(nextDir, endX, endY));
+  }
+
+  currentLaneCount() {
+    const fcfg = CONFIG.frogger;
+    const step = Math.floor(this.maxDistance / (fcfg.laneIncreaseDistance ?? 500));
+    return Math.min((fcfg.minLanes ?? 4) + step, fcfg.maxLanes ?? 10);
+  }
+
+  // Advance to the next (pre-generated) segment, then queue another one
+  // beyond it so the road always extends ahead of the camera.
+  turn() {
+    this.distCompletedSegs += this.distInSegment;
+    this.distInSegment = 0;
+    this.activeSegmentIdx++;
+
+    // Make sure there's always one more segment in the queue past the active
+    if (this.activeSegmentIdx >= this.segments.length - 1) this.appendNextSegment();
+
+    // Reset enemies and lanes for new direction
+    for (const e of this.activeEnemies) { e.sprite.setVisible(false); this.enemyPool.push(e.sprite); }
+    this.activeEnemies  = [];
+    this.lastEnemySpawn = {};
+    this.rebuildLanesForActiveSegment();
+
+    this.queuedDodge = { x: 0, y: 0 };
+    ctrlHintEl.textContent = froggerHintFor(this.activeSegment().dir);
+  }
+
+  // Build randomized per-lane spawn config for the active segment.
+  // perpPixel is the pixel center of the lane along the perpendicular axis,
+  // so cars are visually centered in their lane regardless of laneWidth parity.
+  rebuildLanesForActiveSegment() {
+    const seg  = this.activeSegment();
+    const fcfg = CONFIG.frogger;
+    const lw   = fcfg.laneWidthCells ?? 1;
+    const { top } = laneOffsetRange(seg.lanes, lw);
+    this.lanes = [];
+    for (let l = 0; l < seg.lanes; l++) {
+      // Pixel center of lane l: perpCenter + topOffset + lane*width + halfLaneWidth
+      const perpPixel = (seg.perpCenter + top + l * lw + lw / 2) * CELL;
+      this.lanes.push({
+        laneIdx: l,
+        perpPixel,
+        speed:    fcfg.enemySpeedMin + Math.random() * (fcfg.enemySpeedMax - fcfg.enemySpeedMin),
+        type:     Math.random() < fcfg.truckProbability ? 'truck' : 'car',
+        interval: fcfg.spawnIntervalMin + Math.random() * (fcfg.spawnIntervalMax - fcfg.spawnIntervalMin),
+      });
+      this.lastEnemySpawn[l] = this.time.now + 200 + Math.random() * 1200;
+    }
   }
 
   // Difficulty step rises with maxDistance — feeds enemy speed & spawn rate
@@ -483,56 +669,103 @@ class GooseScene extends Phaser.Scene {
   }
 
   updateEnemies(delta, time) {
-    const dtSec = delta / 1000;
-    const step = this.difficultyStep();
+    const dtSec   = delta / 1000;
+    const step    = this.difficultyStep();
     const speedup = 1 + step * (CONFIG.frogger.difficultySpawnSpeedup ?? 0);
+    const seg     = this.activeSegment();
+    if (!seg) return;
 
-    // Spawn — interval shrinks with difficulty
+    // Spawn — keyed by lane index (perpPixel changes with perpCenter per segment)
     for (const lane of this.lanes) {
       const adjusted = lane.interval / speedup;
-      const since = time - (this.lastEnemySpawn[lane.row] ?? 0);
+      const since    = time - (this.lastEnemySpawn[lane.laneIdx] ?? 0);
       if (since >= adjusted) {
-        this.lastEnemySpawn[lane.row] = time;
-        this.spawnEnemy(lane);
+        this.lastEnemySpawn[lane.laneIdx] = time;
+        this.spawnEnemy(lane, seg);
       }
     }
 
-    // Move
+    // Move — velocity is opposite to segment direction
     for (const e of this.activeEnemies) {
-      e.worldX -= e.speed * CELL * dtSec;
-      e.sprite.setX(e.worldX + e.pixelW / 2);
+      e.worldX += e.velX * dtSec;
+      e.worldY += e.velY * dtSec;
+      e.sprite.setPosition(e.worldX, e.worldY);
     }
 
-    // Cull off the left edge of the camera (with a small margin)
-    const killX = this.cameras.main.scrollX - CELL * 2;
-    const dead = this.activeEnemies.filter(e => e.worldX + e.pixelW < killX);
-    for (const e of dead) { e.sprite.setVisible(false); this.enemyPool.push(e.sprite); }
-    this.activeEnemies = this.activeEnemies.filter(e => e.worldX + e.pixelW >= killX);
+    // Cull: behind the player along the forward axis (off-screen)
+    const camX = this.cameras.main.scrollX;
+    const camY = this.cameras.main.scrollY;
+    const margin = CELL * 3;
+    this.activeEnemies = this.activeEnemies.filter(e => {
+      const ox = e.worldX < camX - margin || e.worldX > camX + W + margin;
+      const oy = e.worldY < camY - margin || e.worldY > camY + H + margin;
+      if (ox || oy) { e.sprite.setVisible(false); this.enemyPool.push(e.sprite); return false; }
+      return true;
+    });
   }
 
-  spawnEnemy(lane) {
+  // Spawn an enemy at the far end of the camera viewport along the segment
+  // direction. Sprite is rotated to "face" its velocity vector. Width scales
+  // to fill the lane perpendicular to road direction.
+  spawnEnemy(lane, seg) {
     const isTruck = lane.type === 'truck';
-    const pixelW = isTruck ? 2 * CELL - 2 : CELL - 2;
-    const key = isTruck ? 'enemy-truck' : 'enemy-car';
-    const worldY = lane.row * CELL + CELL / 2;
-    // Spawn just past the right edge of the camera (camera-relative, not world-edge)
-    const worldX = this.cameras.main.scrollX + W + 10;
-    const speed = lane.speed + this.difficultyStep() * (CONFIG.frogger.difficultySpeedBonus ?? 0);
+    const lw      = CONFIG.frogger.laneWidthCells ?? 1;
+    const shortPx = lw * CELL - 4;             // perp size — fills lane minus padding
+    const longPx  = isTruck ? 2 * CELL - 4 : CELL - 4;  // along-road length unchanged
+    const key     = isTruck ? 'enemy-truck' : 'enemy-car';
+
+    const dir = seg.dir;
+    const speed = (lane.speed + this.difficultyStep() * (CONFIG.frogger.difficultySpeedBonus ?? 0)) * CELL;
+
+    // Spawn position: along perp axis at lane perpPixel, along forward axis
+    // beyond the camera viewport (so it enters from "ahead" of the player).
+    const camX = this.cameras.main.scrollX;
+    const camY = this.cameras.main.scrollY;
+    let worldX, worldY;
+    if (dir.x !== 0) {
+      // Horizontal travel: lanes are rows. Spawn at far horizontal edge.
+      worldX = (dir.x > 0) ? camX + W + CELL : camX - CELL;
+      worldY = lane.perpPixel;
+    } else {
+      // Vertical travel: lanes are columns. Spawn at far vertical edge.
+      worldX = lane.perpPixel;
+      worldY = (dir.y > 0) ? camY + H + CELL : camY - CELL;
+    }
+
+    // Velocity is opposite to player direction
+    const velX = -dir.x * speed;
+    const velY = -dir.y * speed;
 
     let sprite = this.enemyPool.pop();
-    if (!sprite) sprite = this.add.image(0, worldY, key).setDepth(4);
-    else sprite.setTexture(key).setVisible(true).setY(worldY);
-    sprite.setDisplaySize(pixelW, CELL - 4).setX(worldX + pixelW / 2);
+    if (!sprite) sprite = this.add.image(0, 0, key).setDepth(4);
+    else sprite.setTexture(key).setVisible(true);
 
-    this.activeEnemies.push({ worldX, worldY, pixelW, speed, lane: lane.row, sprite });
+    // Sprite default orientation faces LEFT (angle π in Phaser). Rotate so it
+    // faces its velocity direction (the way it's moving).
+    const rot = Math.atan2(velY, velX) - Math.PI;
+    sprite
+      .setDisplaySize(longPx, shortPx)
+      .setRotation(rot)
+      .setPosition(worldX, worldY);
+
+    this.activeEnemies.push({ worldX, worldY, velX, velY, longPx, shortPx, sprite });
   }
 
   checkEnemyCollision() {
     const hx = this.snake.x * CELL + CELL / 2;
     const hy = this.snake.y * CELL + CELL / 2;
     for (const e of this.activeEnemies) {
-      if (Math.abs(hy - e.worldY) < CELL * 0.55 &&
-        hx > e.worldX + 3 && hx < e.worldX + e.pixelW - 3) return true;
+      // Enemy is an axis-aligned rect — orientation determines which axis is "long"
+      const horizontal = Math.abs(e.velX) > Math.abs(e.velY);
+      const halfLong  = e.longPx / 2;
+      const halfShort = e.shortPx / 2;
+      const dx = hx - e.worldX;
+      const dy = hy - e.worldY;
+      if (horizontal) {
+        if (Math.abs(dx) < halfLong - 3 && Math.abs(dy) < halfShort) return true;
+      } else {
+        if (Math.abs(dy) < halfLong - 3 && Math.abs(dx) < halfShort) return true;
+      }
     }
     return false;
   }
@@ -542,10 +775,19 @@ class GooseScene extends Phaser.Scene {
     this.running = false;
     this.timeLeftInRound = null;
     timerDispEl.classList.remove('show');
-    msgEl.className = 'msg-over';
-    msgEl.textContent = `HONK! Game over — Score: ${this.score} 𓅬`;
     startBtn.textContent = 'Play Again';
     this.draw(1);
+
+    // Hand off to the modal for score/leaderboard/name input. Clear msgEl so
+    // the inline "HONK!" line doesn't double-up with the modal heading.
+    if (typeof window.showEndGameModal === 'function') {
+      msgEl.textContent = '';
+      msgEl.className   = '';
+      window.showEndGameModal(this.score);
+    } else {
+      msgEl.className   = 'msg-over';
+      msgEl.textContent = `HONK! Game over — Score: ${this.score} 𓅬`;
+    }
   }
 
   // ── Food spawning ──────────────────────────────────────
@@ -651,43 +893,242 @@ class GooseScene extends Phaser.Scene {
     for (let r = 0; r <= ROWS; r++) g.lineBetween(0, r * CELL, W, r * CELL);
   }
 
-  // Frogger road — renders only the visible window each frame.
+  // Frogger road — walks the segment list and draws each visible segment's
+  // road rectangle. Walls are implicit: the canvas background colour (set to
+  // wall colour) shows wherever no road is drawn.
   drawDynamicRoad() {
     const g = this.dynBgGfx;
     g.clear();
 
-    const camX = this.cameras.main.scrollX;
-    const startCol = Math.max(FROG_START, Math.floor(camX / CELL) - 1);
-    const endCol = Math.ceil((camX + W) / CELL) + 1;
-    if (endCol <= startCol) return;
+    if (!this.segments || this.segments.length === 0) return;
 
-    const x = startCol * CELL;
-    const w = (endCol - startCol) * CELL;
+    const cam   = this.cameras.main;
+    const viewL = cam.scrollX - CELL;
+    const viewR = cam.scrollX + W + CELL;
+    const viewT = cam.scrollY - CELL;
+    const viewB = cam.scrollY + H + CELL;
 
-    // Lanes + wall rows
-    for (let row = 0; row < ROWS; row++) {
-      const isWall = (row === 0 || row === ROWS - 1);
-      g.fillStyle(isWall ? 0x1a1208
-        : (Math.floor(row / 3) % 2 === 0 ? 0x333333 : 0x2a2a2a));
-      g.fillRect(x, row * CELL, w, CELL);
-    }
+    // Ground: dark mossy green so trees, barriers and asphalt all read well
+    g.fillStyle(0x223018);
+    g.fillRect(cam.scrollX, cam.scrollY, W, H);
 
-    // Dashed lane centre lines — every other column
-    g.fillStyle(0xffdd00, 0.25);
-    const dashStart = startCol - (startCol % 2);
-    for (let row = 1; row < ROWS - 1; row++) {
-      for (let col = dashStart; col < endCol; col += 2) {
-        if (col < FROG_START) continue;
-        g.fillRect(col * CELL + 4, row * CELL + CELL / 2 - 1, CELL - 8, 2);
+    const lw = CONFIG.frogger.laneWidthCells ?? 1;
+
+    // Trees first — they sit on the ground and are over-painted by road
+    this.drawTrees(g, viewL, viewR, viewT, viewB, lw);
+
+    for (let i = 0; i < this.segments.length; i++) {
+      const seg = this.segments[i];
+      // Render every segment to its full planned length so the road is always
+      // drawn ahead of the camera viewport — no trailing-edge pop-in.
+      const lenCells = seg.length;
+      const { top, bot } = laneOffsetRange(seg.lanes, lw);
+
+      // Road rectangle in world coords
+      let rx, ry, rw, rh;
+      if (seg.dir.x !== 0) {
+        // Horizontal segment
+        const startX = seg.originCellX;
+        const endX   = startX + seg.dir.x * lenCells;
+        rx = Math.min(startX, endX) * CELL;
+        rw = Math.abs(endX - startX) * CELL;
+        ry = (seg.perpCenter + top) * CELL;
+        rh = (bot - top + 1) * CELL;
+      } else {
+        // Vertical segment
+        const startY = seg.originCellY;
+        const endY   = startY + seg.dir.y * lenCells;
+        ry = Math.min(startY, endY) * CELL;
+        rh = Math.abs(endY - startY) * CELL;
+        rx = (seg.perpCenter + top) * CELL;
+        rw = (bot - top + 1) * CELL;
+      }
+
+      // Cull off-viewport segments
+      if (rx + rw < viewL || rx > viewR || ry + rh < viewT || ry > viewB) continue;
+
+      // Alternate lane band colours for visual lane separation
+      const horiz = seg.dir.x !== 0;
+      for (let l = 0; l < seg.lanes; l++) {
+        const isOdd = (l % 2) === 0;
+        g.fillStyle(isOdd ? 0x333333 : 0x2a2a2a);
+        const laneTopOffsetCells = top + l * lw;       // cell offset from perpCenter to lane's first cell
+        const laneStartPx = (seg.perpCenter + laneTopOffsetCells) * CELL;
+        const laneThickPx = lw * CELL;
+        if (horiz) g.fillRect(rx, laneStartPx, rw, laneThickPx);
+        else       g.fillRect(laneStartPx, ry, laneThickPx, rh);
+      }
+
+      // Dashed centre lines — one per lane, drawn at the lane's perp midpoint
+      g.fillStyle(0xffdd00, 0.25);
+      if (horiz) {
+        const colStart = Math.floor(rx / CELL);
+        const colEnd   = Math.ceil((rx + rw) / CELL);
+        for (let l = 0; l < seg.lanes; l++) {
+          const ly = (seg.perpCenter + top + l * lw + lw / 2) * CELL - 1;
+          for (let c = colStart - (colStart % 2); c < colEnd; c += 2) {
+            const cx = c * CELL;
+            if (cx < rx || cx + CELL > rx + rw) continue;
+            g.fillRect(cx + 4, ly, CELL - 8, 2);
+          }
+        }
+      } else {
+        const rowStart = Math.floor(ry / CELL);
+        const rowEnd   = Math.ceil((ry + rh) / CELL);
+        for (let l = 0; l < seg.lanes; l++) {
+          const lx = (seg.perpCenter + top + l * lw + lw / 2) * CELL - 1;
+          for (let r = rowStart - (rowStart % 2); r < rowEnd; r += 2) {
+            const cy = r * CELL;
+            if (cy < ry || cy + CELL > ry + rh) continue;
+            g.fillRect(lx, cy + 4, 2, CELL - 8);
+          }
+        }
+      }
+
+      // Concrete barrier walls along the perp edges of the road
+      const barrierThick = 3;
+      g.fillStyle(0x6a6a6a);
+      if (horiz) {
+        g.fillRect(rx, (seg.perpCenter + top) * CELL - barrierThick, rw, barrierThick);
+        g.fillRect(rx, (seg.perpCenter + bot + 1) * CELL,             rw, barrierThick);
+      } else {
+        g.fillRect((seg.perpCenter + top) * CELL - barrierThick, ry, barrierThick, rh);
+        g.fillRect((seg.perpCenter + bot + 1) * CELL,            ry, barrierThick, rh);
       }
     }
 
-    // Wall blocks on top/bottom rows (visible portion only)
-    g.fillStyle(0x221810);
-    for (let col = Math.max(FROG_START, startCol); col < endCol; col++) {
-      g.fillRect(col * CELL + 1, 1, CELL - 2, CELL - 2);
-      g.fillRect(col * CELL + 1, (ROWS - 1) * CELL + 1, CELL - 2, CELL - 2);
+    // Curved corners between consecutive segments — replaces flat junction
+    // rectangles with annular sectors that visually bend the road through 90°.
+    for (let i = 0; i < this.segments.length - 1; i++) {
+      this.drawJunctionCurve(g, this.segments[i], this.segments[i + 1], lw);
     }
+  }
+
+  // ── Tree scenery ──────────────────────────────────────
+  // Deterministic placement: same world cell always gets same (or no) tree,
+  // so the camera revisiting an area sees the same landscape. As the camera
+  // moves, new cells reveal new (deterministic) trees — feels dynamic.
+  drawTrees(g, viewL, viewR, viewT, viewB, lw) {
+    const startCol = Math.floor(viewL / CELL) - 1;
+    const endCol   = Math.ceil(viewR / CELL) + 1;
+    const startRow = Math.floor(viewT / CELL) - 1;
+    const endRow   = Math.ceil(viewB / CELL) + 1;
+
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        const h = hash2D(c, r);
+        if (h > 0.22) continue;                     // ~22% of cells get a tree
+        if (this.cellOnAnyRoad(c, r, lw)) continue;  // skip cells on roads
+
+        // Jitter within the cell so trees don't form a grid
+        const jx = c * CELL + hash2D(c * 7, r * 11) * (CELL - 6) + 3;
+        const jy = r * CELL + hash2D(c * 13, r * 17) * (CELL - 6) + 3;
+        const size = 4 + h * 28;                    // ~4-10 px
+
+        // Trunk
+        g.fillStyle(0x4a3018);
+        g.fillRect(jx - 1, jy + size * 0.4, 2, size * 0.4);
+
+        // Pine-style canopy — green with per-tree shade variation
+        const shade  = Math.floor(hash2D(c * 19, r * 23) * 40);
+        const leaf   = (0x1c << 16) | ((0x50 + shade) << 8) | 0x1c;
+        g.fillStyle(leaf);
+        g.fillTriangle(jx, jy - size,
+                       jx - size * 0.55, jy + size * 0.4,
+                       jx + size * 0.55, jy + size * 0.4);
+      }
+    }
+  }
+
+  // True if cell (c, r) lies within any segment's road rectangle (lanes range)
+  cellOnAnyRoad(c, r, lw) {
+    for (const seg of this.segments) {
+      const horiz = seg.dir.x !== 0;
+      const { top, bot } = laneOffsetRange(seg.lanes, lw);
+      const startX = seg.originCellX;
+      const endX   = startX + seg.dir.x * seg.length;
+      const startY = seg.originCellY;
+      const endY   = startY + seg.dir.y * seg.length;
+
+      let segMinX, segMaxX, segMinY, segMaxY;
+      if (horiz) {
+        segMinX = Math.min(startX, endX);
+        segMaxX = Math.max(startX, endX);
+        segMinY = seg.perpCenter + top;
+        segMaxY = seg.perpCenter + bot;
+      } else {
+        segMinY = Math.min(startY, endY);
+        segMaxY = Math.max(startY, endY);
+        segMinX = seg.perpCenter + top;
+        segMaxX = seg.perpCenter + bot;
+      }
+      // Pad by 1 cell so trees don't crowd the barrier
+      if (c >= segMinX - 1 && c <= segMaxX + 1 && r >= segMinY - 1 && r <= segMaxY + 1) return true;
+    }
+    return false;
+  }
+
+  // ── Curved junction (90° annular sector) ──────────────
+  // Replaces the flat gray junction square with a true road-curve: an annular
+  // sector of inner radius R - W/2 and outer R + W/2 around an arc center
+  // computed from the two directions. Adds gray barrier arcs on both edges.
+  drawJunctionCurve(g, segA, segB, lw) {
+    const cam = this.cameras.main;
+    const viewL = cam.scrollX - CELL * 3;
+    const viewR = cam.scrollX + W + CELL * 3;
+    const viewT = cam.scrollY - CELL * 3;
+    const viewB = cam.scrollY + H + CELL * 3;
+
+    const Wa = segA.lanes * lw * CELL;
+    const Wb = segB.lanes * lw * CELL;
+    const Wc = Math.max(Wa, Wb);
+    // R = road width so outer arc (R + W/2) covers the outer corner of the
+    // bounding W×W square (distance W*√2 ≈ 1.41W < 1.5W = outer radius).
+    const R       = Wc;
+    const innerR  = Wc / 2;
+    const outerR  = Wc * 1.5;
+
+    // Corner pixel = junction point of the two centerlines
+    const cornerX = segB.originCellX * CELL;
+    const cornerY = segB.originCellY * CELL;
+
+    // Cull off-viewport curves
+    const cullL = Math.min(cornerX - outerR, cornerX + outerR);
+    const cullR = Math.max(cornerX - outerR, cornerX + outerR);
+    const cullT = Math.min(cornerY - outerR, cornerY + outerR);
+    const cullB = Math.max(cornerY - outerR, cornerY + outerR);
+    if (cullR < viewL || cullL > viewR || cullB < viewT || cullT > viewB) return;
+
+    // Arc center: corner + R * (dirB − dirA)
+    const centerX = cornerX + R * (segB.dir.x - segA.dir.x);
+    const centerY = cornerY + R * (segB.dir.y - segA.dir.y);
+
+    // Tangent angles (vectors from center to tangent points)
+    const startAngle = Math.atan2(-segB.dir.y, -segB.dir.x);
+    const endAngle   = Math.atan2(segA.dir.y, segA.dir.x);
+
+    // Pick the SHORT arc — normalize angular diff to [-π, π] and use sign
+    let diff = endAngle - startAngle;
+    while (diff > Math.PI)  diff -= 2 * Math.PI;
+    while (diff < -Math.PI) diff += 2 * Math.PI;
+    const anticw = diff < 0;
+
+    // Filled annular sector — asphalt color
+    g.fillStyle(0x303030);
+    g.beginPath();
+    g.arc(centerX, centerY, outerR, startAngle, endAngle, anticw);
+    g.arc(centerX, centerY, innerR, endAngle,   startAngle, !anticw);
+    g.closePath();
+    g.fillPath();
+
+    // Curved barriers on both edges
+    g.lineStyle(3, 0x6a6a6a);
+    g.beginPath();
+    g.arc(centerX, centerY, outerR, startAngle, endAngle, anticw);
+    g.strokePath();
+    g.beginPath();
+    g.arc(centerX, centerY, innerR, startAngle, endAngle, anticw);
+    g.strokePath();
   }
 
   // ── Dynamic draw ───────────────────────────────────────
@@ -695,8 +1136,9 @@ class GooseScene extends Phaser.Scene {
     const g = this.gameGfx;
     g.clear();
 
-    if (this.froggerMode) this.drawFroggerWalls(g);
-    else this.drawObstacles(g);
+    // In frogger mode the walls are implicit (drawn via drawDynamicRoad's
+    // wall-colour viewport fill); only obstacles need rendering in snake mode.
+    if (!this.froggerMode) this.drawObstacles(g);
 
     if (this.snake?.cells.length > 0) this.drawSnake(g, t);
   }
@@ -735,8 +1177,11 @@ class GooseScene extends Phaser.Scene {
   }
 
   // ── Snake drawing ──────────────────────────────────────
+  // Body is rendered as pooled SVG sprites: 'goose-neck' for intermediate
+  // segments and 'goose-tail' for the last segment. Sprites are sized slightly
+  // larger than CELL so consecutive segments overlap for a continuous look.
   drawSnake(g, t) {
-    const s = this.snake;
+    const s    = this.snake;
     const prev = this.prevCells;
 
     const pos = s.cells.map((c, i) => {
@@ -749,30 +1194,55 @@ class GooseScene extends Phaser.Scene {
       };
     });
 
-    // Damage flash strobes during invuln frames so the player can see HP drain
+    // Tint signals current effect state (damage / godmode / fx). setTint(0xffffff)
+    // = no tint (passthrough multiplication).
     const flashing = this.invulnTicks > 0 && Math.floor(this.time.now / 70) % 2 === 0;
-    let bodyColor = 0xf0ece0;
-    if (flashing) bodyColor = 0xff5544;
-    else if (this.godMode) bodyColor = 0xffaaff;
-    else if (this.fx.speedTicks > 0) bodyColor = 0xffccaa;
-    else if (this.fx.slowTicks > 0) bodyColor = 0xaaccff;
-    else if (this.fx.multLeft > 0) bodyColor = 0xffeeaa;
+    let tint = 0xffffff;
+    if (flashing)                    tint = 0xff5544;
+    else if (this.godMode)           tint = 0xffaaff;
+    else if (this.fx.speedTicks > 0) tint = 0xffccaa;
+    else if (this.fx.slowTicks  > 0) tint = 0xaaccff;
+    else if (this.fx.multLeft   > 0) tint = 0xffeeaa;
 
-    g.lineStyle(CELL * 0.88, bodyColor, 1);
-    for (let i = 0; i < pos.length - 1; i++) {
-      if (Math.abs(pos[i].x - pos[i + 1].x) < CELL * 1.5 &&
-        Math.abs(pos[i].y - pos[i + 1].y) < CELL * 1.5) {
-        g.lineBetween(pos[i].x, pos[i].y, pos[i + 1].x, pos[i + 1].y);
+    const bodyCount = Math.max(0, pos.length - 1);
+
+    // Grow pool lazily
+    while (this.bodySprites.length < bodyCount) {
+      this.bodySprites.push(this.add.image(0, 0, 'goose-neck').setDepth(5));
+    }
+
+    // Position + texture each body segment
+    for (let i = 1; i < pos.length; i++) {
+      const sprite  = this.bodySprites[i - 1];
+      const isTail  = (i === pos.length - 1);
+      const wantKey = isTail ? 'goose-tail' : 'goose-neck';
+      if (sprite.texture.key !== wantKey) sprite.setTexture(wantKey);
+
+      sprite.setPosition(pos[i].x, pos[i].y);
+      sprite.setDisplaySize(CELL + 4, CELL + 4);  // overlap neighbours
+      sprite.setTint(tint);
+      sprite.setVisible(true);
+
+      // Face toward the previous (closer-to-head) segment so neck/tail orient
+      // along the body. Skip rotation on wrap-around jumps to avoid spin.
+      const dx = pos[i - 1].x - pos[i].x;
+      const dy = pos[i - 1].y - pos[i].y;
+      if (Math.hypot(dx, dy) < CELL * 1.5) {
+        sprite.setRotation(Math.atan2(dy, dx));
       }
     }
 
-    g.fillStyle(bodyColor);
-    for (const p of pos) g.fillCircle(p.x, p.y, CELL * 0.44);
+    // Hide pool overflow (after a shrink)
+    for (let i = bodyCount; i < this.bodySprites.length; i++) {
+      this.bodySprites[i].setVisible(false);
+    }
 
+    // Head
     this.headImg
       .setPosition(pos[0].x, pos[0].y)
       .setRotation(Math.atan2(s.dy, s.dx))
-      .setDisplaySize(CELL - 1, CELL - 1)
+      .setDisplaySize(CELL + 2, CELL + 2)
+      .setTint(tint)
       .setVisible(true);
   }
 }
