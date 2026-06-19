@@ -63,6 +63,15 @@ const SPRITES = {
            fill="#ffd700" stroke="#cc9900" stroke-width="1.5" stroke-linejoin="round"/>
 </svg>`,
 
+  // Rampage pickup — fiery 8-point burst with a glowing core. Reads as a potent
+  // power-up, distinct from the gold multiplier star.
+  'snack-rampage': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <polygon points="20,2 22.87,13.07 32.73,7.27 26.93,17.13 38,20 26.93,22.87 32.73,32.73 22.87,26.93 20,38 17.13,26.93 7.27,32.73 13.07,22.87 2,20 13.07,17.13 7.27,7.27 17.13,13.07"
+           fill="#ff7a18" stroke="#b34700" stroke-width="1.5" stroke-linejoin="round"/>
+  <circle cx="20" cy="20" r="8.5" fill="#ffd23a"/>
+  <circle cx="20" cy="20" r="4.5" fill="#fff3b0"/>
+</svg>`,
+
   'enemy-car': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 36" width="40" height="36">
   <rect x="2" y="14" width="36" height="18" rx="4" fill="#d03020" stroke="#8a1810" stroke-width="1.5"/>
   <rect x="7" y="6" width="24" height="13" rx="3" fill="#b02818"/>
@@ -92,7 +101,78 @@ const SPRITES = {
   <rect x="2" y="16" width="4" height="8" rx="1" fill="#ffee88" opacity="0.9"/>
 </svg>`,
 
+  // Rare "super" enemy — sleek bright-yellow car wrapped in a soft glow halo
+  // (layered translucent ellipses, no SVG filters so it rasterizes reliably).
+  // Same left-facing / wheels-down convention as the other vehicles.
+  'enemy-super': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 44" width="48" height="44">
+  <ellipse cx="24" cy="26" rx="26" ry="17" fill="#ffe83a" opacity="0.10"/>
+  <ellipse cx="24" cy="26" rx="19" ry="12" fill="#ffe83a" opacity="0.16"/>
+  <rect x="5" y="20" width="38" height="16" rx="6" fill="#ffe24a" stroke="#b88a10" stroke-width="1.5"/>
+  <rect x="12" y="12" width="21" height="10" rx="3" fill="#ffcf1f"/>
+  <rect x="14" y="14" width="8" height="6.5" rx="1.5" fill="#bfefff" opacity="0.9"/>
+  <rect x="24" y="14" width="6" height="6.5" rx="1.5" fill="#bfefff" opacity="0.9"/>
+  <circle cx="14" cy="37" r="4.5" fill="#1a1a1a" stroke="#666" stroke-width="1"/>
+  <circle cx="34" cy="37" r="4.5" fill="#1a1a1a" stroke="#666" stroke-width="1"/>
+  <rect x="5" y="24" width="4.5" height="6" rx="1.2" fill="#fffce0"/>
+</svg>`,
+
+  // Yellow motion streak drawn behind a super enemy. Bright at the left edge
+  // (the pivot, pinned to the car) tapering to a transparent point.
+  'enemy-streak': `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 20" width="60" height="20">
+  <defs>
+    <linearGradient id="sg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0"    stop-color="#fff6b0" stop-opacity="0.85"/>
+      <stop offset="0.35" stop-color="#ffe23a" stop-opacity="0.45"/>
+      <stop offset="1"    stop-color="#ffe23a" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 4 L46 1 L60 10 L46 19 L0 16 Z" fill="url(#sg)"/>
+</svg>`,
+
 };
+
+// ── Vehicle color variants ─────────────────────────────────
+// The base enemy-car/enemy-truck art above is a side view (front to the left,
+// wheels along the bottom). To break up the "every car in a lane looks the
+// same" monotony, generate a palette of recolored variants by swapping the
+// body hex codes. Each car has 3 shades (body / roof / stroke) derived from one
+// base color; trucks recolor just the cab so the cargo box stays distinct.
+
+function darkenHex(hex, factor) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.round(((n >> 16) & 0xff) * factor);
+  const g = Math.round(((n >> 8) & 0xff) * factor);
+  const b = Math.round((n & 0xff) * factor);
+  return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+}
+
+const CAR_BODY_COLORS = [
+  '#d03020', '#2f6fd0', '#2faa50', '#e0b020',
+  '#8040c0', '#20a0a0', '#607888', '#e07020',
+];
+const TRUCK_CAB_COLORS = [
+  '#c07828', '#4878b8', '#5a9a4a', '#b04838', '#808a96', '#b09060',
+];
+
+const ENEMY_CAR_KEYS   = [];
+const ENEMY_TRUCK_KEYS = [];
+
+CAR_BODY_COLORS.forEach((body, i) => {
+  const key = 'enemy-car-' + i;
+  SPRITES[key] = SPRITES['enemy-car']
+    .replaceAll('#d03020', body)                 // body
+    .replaceAll('#b02818', darkenHex(body, 0.85)) // roof
+    .replaceAll('#8a1810', darkenHex(body, 0.62)); // stroke
+  ENEMY_CAR_KEYS.push(key);
+});
+
+TRUCK_CAB_COLORS.forEach((cab, i) => {
+  const key = 'enemy-truck-' + i;
+  SPRITES[key] = SPRITES['enemy-truck']
+    .replaceAll('#c07828', cab)                  // cab body
+    .replaceAll('#8a5018', darkenHex(cab, 0.7));  // cab stroke
+  ENEMY_TRUCK_KEYS.push(key);
+});
 
 function spriteDataURI(key) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(SPRITES[key]);

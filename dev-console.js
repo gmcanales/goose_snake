@@ -149,7 +149,7 @@
 
   document.getElementById('dev-clear-enemies').addEventListener('click', () => {
     withScene(s => {
-      for (const e of s.activeEnemies) { e.sprite.setVisible(false); s.enemyPool.push(e.sprite); }
+      for (const e of s.activeEnemies) s.recycleEnemy(e);
       s.activeEnemies = [];
     }, 'Enemies cleared');
   });

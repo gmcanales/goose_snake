@@ -426,6 +426,7 @@ h1 {
 .fx-speed { background: rgba(232, 112, 96, 0.18); color: #e87060; }
 .fx-slow  { background: rgba(85,  136, 221, 0.18); color: #5588dd; }
 .fx-star  { background: rgba(214, 169,  54, 0.18); color: #d6a936; }
+.fx-god   { background: rgba(255, 122, 24, 0.22); color: #ff7a18; }
 
 #game-message {
   font-size: 1rem;

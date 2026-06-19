@@ -42,6 +42,10 @@ const DEFAULT_CONFIG = {
     slow:   { points: 1, durationTicks: 8, tickMultiplier: 1.8 },
     shrink: { points: 2, shrinkBy: 2, minLength: 2 },
     star:   { points: 1, multiplierUses: 5 },
+    // Frogger-only "rampage" pickup: temporary invincibility + speed boost.
+    // While active, driving into enemies smashes them aside instead of taking
+    // damage. durationMs is real-time; tickMultiplier scales the move tick.
+    rampage: { points: 2, durationMs: 5000, tickMultiplier: 0.55 },
   },
 
   // Score multiplier applied when a star is active
@@ -63,6 +67,12 @@ const DEFAULT_CONFIG = {
     spawnIntervalMin: 1500,
     spawnIntervalMax: 4000,
     truckProbability: 0.55,
+    // Rare "super" enemy — much faster than normal traffic, with a yellow glow
+    // and motion streak as an eye-catching mix-up. Rolled before the truck
+    // check, so this is its share of all spawns.
+    superProbability: 0.05,
+    superSpeedMin:    7.5,
+    superSpeedMax:    11,
     // Lane count grows with distance. minLanes at start, +1 each
     // laneIncreaseDistance cells of forward progress, capped at maxLanes.
     minLanes: 4,
@@ -86,6 +96,11 @@ const DEFAULT_CONFIG = {
     // length drops below minLength (1 = full body must be consumed).
     invulnTicks: 6,
     minLength:   1,
+    // Rampage pickup spawning (frogger only). One pickup is placed on the road
+    // ahead every rampageSpawnInterval ms, rampageAheadCells forward of the player.
+    rampageSpawnIntervalMin: 12000,
+    rampageSpawnIntervalMax: 22000,
+    rampageAheadCells:       12,
   },
 
   // Points awarded per new cell of forward distance reached in frogger mode
