@@ -40,6 +40,10 @@ body {
   padding: 32px 24px;
 }
 
+@media (max-width: 480px) {
+  #game-container { padding: 16px 12px; }
+}
+
 h1 {
   font-size: 2.4rem;
   font-weight: 900;
@@ -47,14 +51,51 @@ h1 {
   text-shadow: 0 0 40px var(--accent-glow), 0 2px 20px rgba(0, 0, 0, 0.5);
 }
 
-#phaser-wrap { position: relative; display: inline-block; line-height: 0; }
+/* Responsive square box: 400px on desktop, shrinks to fit narrow screens.
+   Phaser's FIT scale mode fits the 400×400 canvas into this box. touch-action
+   none stops the browser treating swipes on the board as scroll/zoom — so swipe
+   steering works without fullscreen, while the rest of the page scrolls normally. */
+#phaser-wrap {
+  position: relative;
+  display: block;
+  line-height: 0;
+  width: min(400px, 100%, 85vh);
+  aspect-ratio: 1 / 1;
+  margin: 0 auto;
+  touch-action: none;
+}
+
+#phaser-container { width: 100%; height: 100%; }
 
 #phaser-container canvas {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: 0 0 32px -10px var(--accent-glow), 0 12px 40px rgba(0, 0, 0, 0.6);
   display: block;
+  touch-action: none;
 }
+
+/* ── One-time swipe coachmark (touch only; JS toggles .show) ── */
+#swipe-hint {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-lg);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  line-height: 1.2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  z-index: 5;
+}
+#swipe-hint.show { display: flex; opacity: 1; }
+#swipe-hint .swipe-arrows { font-size: 1.8rem; letter-spacing: 0.15em; }
+#swipe-hint .swipe-label { font-size: 1rem; font-weight: 700; letter-spacing: 0.04em; }
 
 /* ── Section title splash ── */
 #section-splash {

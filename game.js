@@ -22,12 +22,18 @@ const startBtn = document.getElementById('start-btn');
 const msgEl = document.getElementById('game-message');
 const effectsEl = document.getElementById('effects-bar');
 const ctrlHintEl = document.getElementById('controls-hint');
+const swipeHintEl = document.getElementById('swipe-hint');
 
-const SNAKE_HINT = 'Arrow keys or WASD  ·  ` for dev console';
+// Touch device → drive with swipes instead of the keyboard.
+const IS_TOUCH = (typeof window !== 'undefined') &&
+  (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+
+const SNAKE_HINT = IS_TOUCH ? 'Swipe to move' : 'Arrow keys or WASD  ·  ` for dev console';
 const FROGGER_HINT = '↑↓ to dodge  ·  always advancing';
 
 // Direction-aware control hint for frogger.
 function froggerHintFor(dir) {
+  if (IS_TOUCH) return 'Swipe to dodge';
   const horizontal = dir && dir.x !== 0;
   return horizontal
     ? 'Up/Down to dodge  ·  always advancing'
@@ -147,6 +153,23 @@ class GooseScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
     ]);
     this.input.keyboard.on('keydown', e => this.handleKey(e));
+
+    // Swipe steering (touch + mouse-drag). Pointer coords are in game space, so
+    // the threshold is resolution-independent. Re-anchoring on each threshold
+    // cross lets one continuous drag chain turns (e.g. right→down for an L).
+    const SWIPE_TH = 22; // ~1.1 cells in game space
+    this.input.on('pointerdown', p => { this._swipeAnchor = { x: p.x, y: p.y }; });
+    this.input.on('pointermove', p => {
+      if (!p.isDown || !this._swipeAnchor) return;
+      const dx = p.x - this._swipeAnchor.x;
+      const dy = p.y - this._swipeAnchor.y;
+      if (Math.abs(dx) < SWIPE_TH && Math.abs(dy) < SWIPE_TH) return;
+      if (Math.abs(dx) > Math.abs(dy)) this.setDirection(Math.sign(dx), 0);
+      else                             this.setDirection(0, Math.sign(dy));
+      this._swipeAnchor = { x: p.x, y: p.y };
+      this.dismissSwipeHint();
+    });
+    this.input.on('pointerup', () => { this._swipeAnchor = null; });
   }
 
   // ── Frame loop ─────────────────────────────────────────
@@ -213,27 +236,9 @@ class GooseScene extends Phaser.Scene {
   }
 
   // ── Input ──────────────────────────────────────────────
+  // Keyboard → cardinal direction. Thin mapper onto setDirection() so keyboard,
+  // swipe, and any future input all share one path.
   handleKey(e) {
-    if (!this.running || !this.snake) return;
-
-    // Frogger: dodge keys depend on travel direction.
-    //   Horizontal travel (left/right) → ↑↓ to dodge perpendicular
-    //   Vertical travel (up/down)      → ←→ to dodge perpendicular
-    if (this.froggerMode) {
-      const seg = this.activeSegment();
-      if (!seg) return;
-      const horizontal = seg.dir.x !== 0;
-      if (horizontal) {
-        if (e.code === 'ArrowUp'   || e.code === 'KeyW') this.queuedDodge = { x: 0, y: -1 };
-        else if (e.code === 'ArrowDown' || e.code === 'KeyS') this.queuedDodge = { x: 0, y:  1 };
-      } else {
-        if (e.code === 'ArrowLeft'  || e.code === 'KeyA') this.queuedDodge = { x: -1, y: 0 };
-        else if (e.code === 'ArrowRight' || e.code === 'KeyD') this.queuedDodge = { x:  1, y: 0 };
-      }
-      return;
-    }
-
-    const s = this.snake;
     const map = {
       ArrowUp: [0, -1], KeyW: [0, -1],
       ArrowDown: [0, 1], KeyS: [0, 1],
@@ -242,11 +247,40 @@ class GooseScene extends Phaser.Scene {
     };
     const dir = map[e.code];
     if (!dir) return;
-    const [dx, dy] = dir;
+    this.setDirection(dir[0], dir[1]);
+  }
+
+  // Apply a cardinal steering intent (dx,dy ∈ {-1,0,1}, one axis non-zero).
+  // Snake: queue the next heading, ignoring 180° reversals.
+  // Frogger: only the axis perpendicular to current travel dodges; the parallel
+  // axis is ignored (matches how the road reorients on turns).
+  setDirection(dx, dy) {
+    if (!this.running || !this.snake) return;
+
+    if (this.froggerMode) {
+      const seg = this.activeSegment();
+      if (!seg) return;
+      const horizontal = seg.dir.x !== 0;
+      if (horizontal) {
+        if      (dy === -1) this.queuedDodge = { x: 0, y: -1 };
+        else if (dy ===  1) this.queuedDodge = { x: 0, y:  1 };
+      } else {
+        if      (dx === -1) this.queuedDodge = { x: -1, y: 0 };
+        else if (dx ===  1) this.queuedDodge = { x:  1, y: 0 };
+      }
+      return;
+    }
+
+    const s = this.snake;
     if (dx !== 0 && dx === -s.dx) return;
     if (dy !== 0 && dy === -s.dy) return;
     this.nextDx = dx;
     this.nextDy = dy;
+  }
+
+  // Hide the one-time "swipe to move" coachmark (first touch input dismisses it).
+  dismissSwipeHint() {
+    if (swipeHintEl) swipeHintEl.classList.remove('show');
   }
 
   // ── Game start ─────────────────────────────────────────
@@ -296,6 +330,7 @@ class GooseScene extends Phaser.Scene {
     distDispEl.classList.remove('show');
     timerDispEl.classList.remove('show');
     ctrlHintEl.textContent = SNAKE_HINT;
+    if (IS_TOUCH && swipeHintEl) swipeHintEl.classList.add('show');
     msgEl.textContent = '';
     msgEl.className = '';
     effectsEl.innerHTML = '';
@@ -1533,12 +1568,19 @@ class GooseScene extends Phaser.Scene {
 (typeof CONFIG_READY !== 'undefined' ? CONFIG_READY : Promise.resolve()).then(() => {
   new Phaser.Game({
     type: Phaser.AUTO,
-    width: W,
-    height: H,
-    parent: 'phaser-container',
     backgroundColor: '#4a7c59',
     scene: GooseScene,
     audio: { noAudio: true },
+    // FIT scales the fixed 400×400 board to the parent's responsive box (sized
+    // in CSS) while preserving aspect ratio, so it fills small screens and the
+    // swipe surface stays large. Pointer coords are still reported in game space.
+    scale: {
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
+      parent: 'phaser-container',
+      width: W,
+      height: H,
+    },
   });
 });
 
