@@ -8,7 +8,7 @@
 const DEFAULT_CONFIG = {
 
   // Tick speed (ms/tick) per level. Clamped to last entry beyond array length.
-  levelSpeeds: [150, 125, 100, 85, 75],
+  levelSpeeds: [125, 125, 100, 90, 90],
 
   // Snake-mode level progression. 4 normal levels + 1 timed growth round (L5),
   // after which the game transitions to frogger (DODGE) mode.
@@ -49,11 +49,11 @@ const DEFAULT_CONFIG = {
   },
 
   // Score multiplier applied when a star is active
-  scoreMultiplier: 2,
+  scoreMultiplier: 4,
 
   // Obstacles
   obstaclesPerLevel: 3,
-  maxObstacles:      12,
+  maxObstacles:      9,
   obstacleHeadBuffer: 4,  // min Chebyshev distance from head when spawning
 
   // Food count — actual = min(base + floor(level/2), max)
@@ -62,8 +62,8 @@ const DEFAULT_CONFIG = {
 
   // Frogger mode (infinite scroll, multi-segment road with turns)
   frogger: {
-    enemySpeedMin:    1.8,
-    enemySpeedMax:    5.0,
+    enemySpeedMin:    0.6,
+    enemySpeedMax:    3.0,
     spawnIntervalMin: 1500,
     spawnIntervalMax: 4000,
     truckProbability: 0.55,
@@ -84,14 +84,14 @@ const DEFAULT_CONFIG = {
     laneWidthCells: 2,
     // Road bends 90° at random intervals; player auto-orients to new direction.
     // turnIntervalMin/Max = cells of forward progress between turns.
-    turnIntervalMin: 120,
+    turnIntervalMin: 60,
     turnIntervalMax: 240,
     // Difficulty ramps every N cells of forward distance reached.
     // Each step adds speedBonus to enemy speed and divides spawn interval
     // by (1 + spawnSpeedup × step).
-    difficultyRampCells:    40,
-    difficultySpeedBonus:   0.4,
-    difficultySpawnSpeedup: 0.15,
+    difficultyRampCells:    60,
+    difficultySpeedBonus:   0.1,
+    difficultySpawnSpeedup: 0.05,
     // Collision = lose 1 segment + invulnTicks of i-frames. Game over when
     // length drops below minLength (1 = full body must be consumed).
     invulnTicks: 6,
