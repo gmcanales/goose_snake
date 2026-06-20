@@ -1527,14 +1527,19 @@ class GooseScene extends Phaser.Scene {
 }
 
 // ── Phaser game ────────────────────────────────────────────
-new Phaser.Game({
-  type: Phaser.AUTO,
-  width: W,
-  height: H,
-  parent: 'phaser-container',
-  backgroundColor: '#4a7c59',
-  scene: GooseScene,
-  audio: { noAudio: true },
+// Wait for config.js to settle the effective CONFIG (config.json ⊕ localStorage)
+// before booting, so the scene's first reads (startPos, startLength, …) see the
+// committed tuning. CONFIG_READY always resolves, even if config.json is absent.
+(typeof CONFIG_READY !== 'undefined' ? CONFIG_READY : Promise.resolve()).then(() => {
+  new Phaser.Game({
+    type: Phaser.AUTO,
+    width: W,
+    height: H,
+    parent: 'phaser-container',
+    backgroundColor: '#4a7c59',
+    scene: GooseScene,
+    audio: { noAudio: true },
+  });
 });
 
 // ── DOM → scene ────────────────────────────────────────────

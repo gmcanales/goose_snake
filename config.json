@@ -1,0 +1,93 @@
+{
+  "levelSpeeds": [
+    125,
+    125,
+    100,
+    90,
+    90
+  ],
+  "snacksPerLevel": 5,
+  "snakeFinalLevel": 5,
+  "finalLevelDurationMs": 60000,
+  "finalLevelFoodCount": 4,
+  "startLength": 4,
+  "startPos": {
+    "x": 10,
+    "y": 10
+  },
+  "snackWeights": {
+    "bread": 0.5,
+    "speed": 0.15,
+    "slow": 0.15,
+    "shrink": 0.1,
+    "star": 0.1
+  },
+  "snackMinLevel": {
+    "bread": 1,
+    "speed": 2,
+    "slow": 2,
+    "shrink": 3,
+    "star": 3
+  },
+  "snacks": {
+    "bread": {
+      "points": 1,
+      "grow": 1
+    },
+    "speed": {
+      "points": 1,
+      "durationTicks": 6,
+      "tickMultiplier": 0.5
+    },
+    "slow": {
+      "points": 1,
+      "durationTicks": 8,
+      "tickMultiplier": 1.8
+    },
+    "shrink": {
+      "points": 2,
+      "shrinkBy": 2,
+      "minLength": 2
+    },
+    "star": {
+      "points": 1,
+      "multiplierUses": 5
+    },
+    "rampage": {
+      "points": 2,
+      "durationMs": 5000,
+      "tickMultiplier": 0.55
+    }
+  },
+  "scoreMultiplier": 4,
+  "obstaclesPerLevel": 3,
+  "maxObstacles": 9,
+  "obstacleHeadBuffer": 4,
+  "baseFoodCount": 1,
+  "maxFoodCount": 3,
+  "frogger": {
+    "enemySpeedMin": 0.6,
+    "enemySpeedMax": 3.0,
+    "spawnIntervalMin": 1500,
+    "spawnIntervalMax": 4000,
+    "truckProbability": 0.55,
+    "superProbability": 0.05,
+    "superSpeedMin": 7.5,
+    "superSpeedMax": 11,
+    "minLanes": 4,
+    "maxLanes": 10,
+    "laneIncreaseDistance": 500,
+    "laneWidthCells": 2,
+    "turnIntervalMin": 60,
+    "turnIntervalMax": 240,
+    "difficultyRampCells": 60,
+    "difficultySpeedBonus": 0.1,
+    "difficultySpawnSpeedup": 0.05,
+    "invulnTicks": 6,
+    "minLength": 1,
+    "rampageSpawnIntervalMin": 12000,
+    "rampageSpawnIntervalMax": 22000,
+    "rampageAheadCells": 12
+  },
+  "distancePointsPerCell": 1
+}

@@ -38,6 +38,10 @@
     jsonArea.value = JSON.stringify(CONFIG, null, 2);
   }
   syncJsonFromConfig();
+  // CONFIG settles asynchronously (config.json fetch); refresh the editor once
+  // it's loaded so the textarea shows the effective committed tuning, not just
+  // the baked fallbacks.
+  window.addEventListener('gooseconfigloaded', syncJsonFromConfig);
 
   document.getElementById('dev-apply-json').addEventListener('click', () => {
     try {
@@ -70,12 +74,14 @@
     flash('Cleared saved config');
   });
 
+  // Downloads as config.json — drop it into the repo root (replacing the
+  // existing config.json) to commit the current tuning. No JS editing needed.
   document.getElementById('dev-download').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(CONFIG, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href     = url;
-    a.download = 'goose-config.json';
+    a.download = 'config.json';
     a.click();
     URL.revokeObjectURL(url);
   });

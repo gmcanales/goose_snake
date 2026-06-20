@@ -1,9 +1,18 @@
 'use strict';
 
-// All gameplay knobs live here. The dev console reads/writes the live CONFIG
-// object; the game reads CONFIG.* fresh each access so changes take effect
-// immediately for things checked per-tick (speed, weights), and on next event
-// for things that fire once (e.g. obstaclesPerLevel on next levelUp).
+// Gameplay knobs. The committed tuning lives in config.json (which is exactly
+// what the dev console's "Download JSON" emits) — to ship new values, tune in
+// the dev console, Download JSON, and replace config.json in the repo. No JS
+// editing required.
+//
+// DEFAULT_CONFIG below is the baked-in *fallback*: it guarantees every key
+// exists (so a partial/old config.json still runs) and lets the game work even
+// without a server. Effective config = DEFAULT_CONFIG ⊕ config.json ⊕ localStorage.
+//
+// The dev console reads/writes the live CONFIG object; the game reads CONFIG.*
+// fresh each access so changes take effect immediately for things checked
+// per-tick (speed, weights), and on next event for things that fire once
+// (e.g. obstaclesPerLevel on next levelUp).
 
 const DEFAULT_CONFIG = {
 
@@ -107,12 +116,21 @@ const DEFAULT_CONFIG = {
   distancePointsPerCell: 1,
 };
 
-// Live mutable config — game reads from here
+// Live mutable config — game reads from here. Starts as a clone of the baked
+// defaults so anything that touches CONFIG before the async load resolves still
+// sees valid values; loadConfig() overlays config.json + localStorage onto it.
 const CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
 
-// Deep-merge so saved configs from older versions keep getting any new default
-// keys we add later (e.g. CONFIG.frogger gained minLanes/turnIntervalMin in
-// the multi-segment refactor — a shallow Object.assign would have wiped them).
+// The "shipped" config = DEFAULT_CONFIG ⊕ config.json. This is what
+// resetConfig() returns to (i.e. the committed tuning, not the raw fallbacks).
+// Filled in by loadConfig(); until then it mirrors DEFAULT_CONFIG.
+let SHIPPED_CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+// Deep-merge so partial/older configs keep getting any new default keys we add
+// later (e.g. CONFIG.frogger gained minLanes/turnIntervalMin in the multi-
+// segment refactor; snacks gained rampage). Arrays are replaced wholesale.
 function deepMerge(target, source) {
   for (const k of Object.keys(source)) {
     const sv = source[k];
@@ -126,17 +144,59 @@ function deepMerge(target, source) {
   return target;
 }
 
-// Restore from localStorage if a saved override exists
-try {
-  const saved = localStorage.getItem('gooseConfig');
-  if (saved) deepMerge(CONFIG, JSON.parse(saved));
-} catch (e) {
-  console.warn('Failed to load saved config:', e);
+function readSavedOverride() {
+  try {
+    const saved = localStorage.getItem('gooseConfig');
+    return saved ? JSON.parse(saved) : null;
+  } catch (e) {
+    console.warn('Failed to read saved config:', e);
+    return null;
+  }
 }
+
+// Rebuild the live CONFIG from the precedence chain:
+//   DEFAULT_CONFIG  (baked fallback — guarantees every key exists)
+//     ⊕ config.json (committed tuning — the dev-console export, source of truth)
+//     ⊕ localStorage (your live local experiments — highest priority)
+function rebuildConfig(fileConfig) {
+  SHIPPED_CONFIG = deepMerge(clone(DEFAULT_CONFIG), fileConfig || {});
+  const next = clone(SHIPPED_CONFIG);
+  const saved = readSavedOverride();
+  if (saved) deepMerge(next, saved);
+  for (const k of Object.keys(CONFIG)) delete CONFIG[k];
+  Object.assign(CONFIG, next);
+}
+
+// Fetch the committed tuning from config.json. Requires the game to be served
+// over HTTP (nginx in prod, or any local dev server) — opening index.html via
+// file:// will fail the fetch and fall back to the baked DEFAULT_CONFIG, which
+// is fine: live tuning via the dev console + Save (localStorage) still works.
+//
+// CONFIG_READY resolves once the config is settled; game boot awaits it.
+const CONFIG_READY = (async function loadConfig() {
+  let fileConfig = null;
+  try {
+    const res = await fetch('./config.json', { cache: 'no-store' });
+    if (res.ok) fileConfig = await res.json();
+    else console.warn(`config.json fetch returned ${res.status}; using baked defaults`);
+  } catch (e) {
+    console.warn('config.json not loaded (serve over HTTP for it to apply); using baked defaults:', e.message);
+  }
+  rebuildConfig(fileConfig);
+  window.dispatchEvent(new Event('gooseconfigloaded'));
+  return CONFIG;
+})();
+
+// Apply any localStorage override synchronously too, so the very first reads
+// (before the fetch resolves) already reflect saved local tweaks over defaults.
+(function applySavedEarly() {
+  const saved = readSavedOverride();
+  if (saved) deepMerge(CONFIG, saved);
+})();
 
 function resetConfig() {
   for (const k of Object.keys(CONFIG)) delete CONFIG[k];
-  Object.assign(CONFIG, JSON.parse(JSON.stringify(DEFAULT_CONFIG)));
+  Object.assign(CONFIG, clone(SHIPPED_CONFIG));
 }
 
 function saveConfigToStorage() {
