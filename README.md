@@ -81,6 +81,44 @@ Because the layers deep-merge, a partial or older `config.json` still inherits a
 
 > **Note:** `config.json` is loaded with `fetch('./config.json')`, so it only applies when the game is **served over HTTP** (nginx in prod, or any local dev server — e.g. `py -m http.server`). Opening `index.html` directly via `file://` falls back to the baked `DEFAULT_CONFIG`. The relative path resolves to `/games/gooooose/config.json` thanks to the trailing-slash redirect; live tuning via the dev console + Save works regardless.
 
+## High-score leaderboard
+
+`end-game.js` shows a leaderboard on game over. Storage is **hybrid**:
+
+- **Global board** — lives in the [congress_trader](https://github.com/gmcanales/congress_trader)
+  Postgres DB, shared across Goosebase games (one table, namespaced by a `game`
+  slug). Reached at `/public_api/games/leaderboard` (same-origin; nginx proxies
+  `/public_api` → backend).
+- **Local cache** — `localStorage` (`gooseHighScores`) is a per-device cache and
+  offline fallback, so the modal still works when the API is unreachable
+  (server down, `file://` open, etc.). On any API error the modal degrades to
+  the local board automatically.
+
+### Why `/public_api` and not `/api`
+
+`goosebase.org/api/*` is gated by Cloudflare Access — but the leaderboard must
+be writable by the public. The backend exposes a **separate, ungated
+`/public_api/*` prefix** for exactly the routes that are safe to expose. The
+full rationale, threat model, and nginx rate-limit configuration live in the
+backend repo: [`congress_trader/docs/hardening.md`](https://github.com/gmcanales/congress_trader/blob/main/docs/hardening.md).
+
+### Posting key
+
+Reading the board is open; **writing a score requires a posting key** sent as
+the `X-Game-Key` header. In `end-game.js`:
+
+```js
+const GAME     = 'gooooose';                            // leaderboard namespace / slug
+const POST_KEY = 'dc8b097b042a263d1a3b2905a06bfdc4';    // sent as X-Game-Key on POST
+```
+
+> **The key is NOT a secret.** It ships in this client-side file and is visible
+> to anyone. It authorizes *this* game to post and blocks casual/drive-by
+> writes — it is not authentication or anti-cheat. `POST_KEY` must match the
+> `gooooose:` entry in `GAME_POST_KEYS` in the congress_trader backend `.env`;
+> if they ever drift, score submission fails (`401`) and the game silently
+> falls back to the local board.
+
 ## Cloudflare Access
 
 `/games/*` is currently gated by the Cloudflare Access email-OTP policy on `goosebase.org`.
