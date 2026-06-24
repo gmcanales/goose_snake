@@ -1638,7 +1638,14 @@ class GooseScene extends Phaser.Scene {
 });
 
 // ── DOM → scene ────────────────────────────────────────────
-startBtn.addEventListener('click', () => { if (gameScene) gameScene.startGame(); });
+startBtn.addEventListener('click', () => {
+  if (!gameScene) return;
+  gameScene.startGame();
+  // Touch play defaults into focus mode so vertical swipes steer instead of
+  // scrolling the page; the Exit button (or Esc) backs out. setFocusMode is a
+  // hoisted function declaration, so calling it here (defined below) is fine.
+  if (IS_TOUCH) setFocusMode(true);
+});
 
 // ── On-screen direction pad ────────────────────────────────
 // Touch devices reveal the pad (CSS via body.touch). Every button feeds the
@@ -1743,8 +1750,9 @@ document.querySelectorAll('#dpad-relative .dpad-btn').forEach(btn => {
 // swipes steer instead of panning the page. The iOS-safe lock pins body with a
 // negative top offset (plain overflow:hidden alone doesn't stop Safari), and we
 // restore the scroll position on exit.
-const focusBtn  = document.getElementById('focus-btn');
-const focusExit = document.getElementById('focus-exit');
+const focusBtn      = document.getElementById('focus-btn');
+const focusExit     = document.getElementById('focus-exit');
+const focusControls = document.getElementById('focus-controls');
 let _focusScrollY = 0;
 
 function setFocusMode(on) {
@@ -1767,6 +1775,9 @@ function setFocusMode(on) {
 
 focusBtn?.addEventListener('click', () => setFocusMode(true));
 focusExit?.addEventListener('click', () => setFocusMode(false));
+// Controls picker stays reachable in focus mode (the action-row is hidden, so
+// this floating button opens the same modal). openControlsModal is hoisted.
+focusControls?.addEventListener('click', openControlsModal);
 // Esc exits focus mode (desktop convenience).
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) setFocusMode(false);
