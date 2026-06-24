@@ -1586,3 +1586,64 @@ class GooseScene extends Phaser.Scene {
 
 // ── DOM → scene ────────────────────────────────────────────
 startBtn.addEventListener('click', () => { if (gameScene) gameScene.startGame(); });
+
+// ── On-screen direction pad ────────────────────────────────
+// Touch devices reveal the pad (CSS via body.touch). Every button feeds the
+// same setDirection() path the keyboard and swipe use, so steering is identical
+// across inputs. pointerdown (not click) keeps it snappy and lets us swallow the
+// gesture so it can't double as a page scroll / long-press selection.
+const DPAD_VEC = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+if (IS_TOUCH) document.body.classList.add('touch');
+
+document.querySelectorAll('#dpad .dpad-btn').forEach(btn => {
+  const v = DPAD_VEC[btn.dataset.dir];
+  if (!v) return;
+  const press = (e) => {
+    e.preventDefault();
+    btn.classList.add('active');
+    if (window.gameScene) {
+      gameScene.setDirection(v[0], v[1]);
+      gameScene.dismissSwipeHint();
+    }
+  };
+  const release = () => btn.classList.remove('active');
+  btn.addEventListener('pointerdown', press);
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('pointerleave', release);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+
+// ── Focus mode ─────────────────────────────────────────────
+// Locks page scrolling and fills the viewport with the board, so vertical
+// swipes steer instead of panning the page. The iOS-safe lock pins body with a
+// negative top offset (plain overflow:hidden alone doesn't stop Safari), and we
+// restore the scroll position on exit.
+const focusBtn  = document.getElementById('focus-btn');
+const focusExit = document.getElementById('focus-exit');
+let _focusScrollY = 0;
+
+function setFocusMode(on) {
+  if (on) {
+    _focusScrollY = window.scrollY || 0;
+    document.documentElement.classList.add('focus-locked');
+    document.body.classList.add('focus-mode');
+    document.body.style.top = `-${_focusScrollY}px`;
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+  } else {
+    document.documentElement.classList.remove('focus-locked');
+    document.body.classList.remove('focus-mode');
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.width = '';
+    window.scrollTo(0, _focusScrollY);
+  }
+}
+
+focusBtn?.addEventListener('click', () => setFocusMode(true));
+focusExit?.addEventListener('click', () => setFocusMode(false));
+// Esc exits focus mode (desktop convenience).
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('focus-mode')) setFocusMode(false);
+});

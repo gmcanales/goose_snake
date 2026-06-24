@@ -429,6 +429,113 @@ h1 {
 }
 #endgame-play-again:active { transform: translateY(1px); }
 
+/* ── On-screen direction pad ──────────────────────────────
+   Four arrows in one horizontal row (keeps the vertical footprint
+   minimal). Hidden by default; shown on touch devices and whenever
+   focus mode is active. The board's swipe steering still works too. */
+#dpad {
+  display: none;
+  gap: 10px;
+  width: min(400px, 100%, 85vh);
+  margin: 2px auto 0;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.touch #dpad,
+body.focus-mode #dpad { display: flex; }
+
+.dpad-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 60px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: var(--surface2);
+  color: var(--accent);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.1s, transform 0.05s, color 0.1s;
+}
+.dpad-btn:active,
+.dpad-btn.active {
+  background: var(--accent);
+  color: var(--accent-text);
+  transform: scale(0.94);
+}
+
+/* ── Action row (Start + Focus mode) ── */
+#action-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center; }
+
+#focus-btn {
+  padding: 9px 18px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-family: var(--font-display);
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+#focus-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── Focus mode: lock scrolling, fill the viewport, centre the board ──
+   The fixed full-viewport container plus html/body overflow:hidden means
+   there's nothing to scroll — so vertical swipes steer the goose instead of
+   panning the page (the bug this fixes on mobile). */
+html.focus-locked,
+body.focus-mode {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+body.focus-mode #game-container {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: var(--bg);
+  justify-content: center;
+  overflow: auto;
+  padding: 16px 12px;
+  gap: 10px;
+}
+body.focus-mode .site-header,
+body.focus-mode .site-footer,
+body.focus-mode #dev-toggle { display: none; }
+
+#focus-exit {
+  display: none;
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 160;
+  padding: 8px 14px;
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+#focus-exit:hover { color: var(--sell); border-color: var(--sell); }
+body.focus-mode #focus-exit { display: inline-flex; }
+
 #hud-row { display: flex; gap: 24px; align-items: center; }
 
 #score-display,

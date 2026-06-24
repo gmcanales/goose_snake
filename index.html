@@ -69,9 +69,18 @@
       </div>
       <div id="swipe-hint" aria-hidden="true">
         <span class="swipe-arrows">↑ ↓ ← →</span>
-        <span class="swipe-label">Swipe to move</span>
+        <span class="swipe-label">Swipe or use the pad</span>
       </div>
     </div>
+
+    <!-- ── On-screen direction pad: one horizontal row to save vertical space ── -->
+    <div id="dpad" role="group" aria-label="Directional controls">
+      <button class="dpad-btn" data-dir="left"  type="button" aria-label="Move left">◀</button>
+      <button class="dpad-btn" data-dir="up"    type="button" aria-label="Move up">▲</button>
+      <button class="dpad-btn" data-dir="down"  type="button" aria-label="Move down">▼</button>
+      <button class="dpad-btn" data-dir="right" type="button" aria-label="Move right">▶</button>
+    </div>
+
     <div id="hud-row">
       <div id="score-display">Score: <span id="score">0</span></div>
       <div id="level-display">Level: <span id="level">1</span></div>
@@ -81,9 +90,15 @@
     </div>
     <div id="effects-bar"></div>
     <p id="game-message"></p>
-    <button id="start-btn">Start</button>
+    <div id="action-row">
+      <button id="start-btn">Start</button>
+      <button id="focus-btn" type="button">⛶ Focus mode</button>
+    </div>
     <p id="controls-hint">Arrow keys or WASD &nbsp;·&nbsp; ` for dev console</p>
   </div>
+
+  <!-- ── Focus-mode exit (shown only while focus mode locks scrolling) ── -->
+  <button id="focus-exit" type="button" aria-label="Exit focus mode">✕ Exit</button>
 
   <!-- ── Dev console panel ── -->
   <aside id="dev-panel">
