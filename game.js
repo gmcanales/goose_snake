@@ -28,6 +28,16 @@ const swipeHintEl = document.getElementById('swipe-hint');
 const IS_TOUCH = (typeof window !== 'undefined') &&
   (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
 
+// Tactile confirmation on touch devices. Short pulse for a registered turn, a
+// longer one when a snack is eaten — the "input landed" cue keyboard gets for
+// free. No-op where the Vibration API is absent (iOS Safari, desktop).
+const HAPTIC_TURN_MS = 12;
+const HAPTIC_EAT_MS  = 40;
+function haptic(ms) {
+  if (!IS_TOUCH || !navigator.vibrate) return;
+  try { navigator.vibrate(ms); } catch (e) { /* unsupported / blocked */ }
+}
+
 const SNAKE_HINT = IS_TOUCH ? 'Swipe to move' : 'Arrow keys or WASD  ·  ` for dev console';
 const FROGGER_HINT = '↑↓ to dodge  ·  always advancing';
 
@@ -143,6 +153,10 @@ class GooseScene extends Phaser.Scene {
     this.prevCells = [];
     this.nextDx = 1;
     this.nextDy = 0;
+    // Pre-loaded turns consumed one-per-tick. Lets a fast "→ ↓" register both
+    // moves instead of the second overwriting the first, so cornering on touch
+    // feels as responsive as stabbing two arrow keys.
+    this.dirQueue = [];
 
     this.drawBackground();
 
@@ -228,11 +242,13 @@ class GooseScene extends Phaser.Scene {
 
   tickMs() {
     const speeds = CONFIG.levelSpeeds;
-    const base = speeds[Math.min(this.level - 1, speeds.length - 1)];
+    let base = speeds[Math.min(this.level - 1, speeds.length - 1)];
+    // Touch devices get a gentler snake pace (frogger/DODGE keeps full speed).
+    if (IS_TOUCH && !this.froggerMode) base *= (CONFIG.mobileSnakeSpeedFactor ?? 1);
     if (this.fx.godMs > 0) return Math.round(base * (CONFIG.snacks.rampage?.tickMultiplier ?? 0.55));
     if (this.fx.speedTicks > 0) return Math.round(base * CONFIG.snacks.speed.tickMultiplier);
     if (this.fx.slowTicks > 0) return Math.round(base * CONFIG.snacks.slow.tickMultiplier);
-    return base;
+    return Math.round(base);
   }
 
   // ── Input ──────────────────────────────────────────────
@@ -261,21 +277,50 @@ class GooseScene extends Phaser.Scene {
       const seg = this.activeSegment();
       if (!seg) return;
       const horizontal = seg.dir.x !== 0;
+      let set = false;
       if (horizontal) {
-        if      (dy === -1) this.queuedDodge = { x: 0, y: -1 };
-        else if (dy ===  1) this.queuedDodge = { x: 0, y:  1 };
+        if      (dy === -1) { this.queuedDodge = { x: 0, y: -1 }; set = true; }
+        else if (dy ===  1) { this.queuedDodge = { x: 0, y:  1 }; set = true; }
       } else {
-        if      (dx === -1) this.queuedDodge = { x: -1, y: 0 };
-        else if (dx ===  1) this.queuedDodge = { x:  1, y: 0 };
+        if      (dx === -1) { this.queuedDodge = { x: -1, y: 0 }; set = true; }
+        else if (dx ===  1) { this.queuedDodge = { x:  1, y: 0 }; set = true; }
       }
+      if (set) haptic(HAPTIC_TURN_MS);
       return;
     }
 
-    const s = this.snake;
-    if (dx !== 0 && dx === -s.dx) return;
-    if (dy !== 0 && dy === -s.dy) return;
-    this.nextDx = dx;
-    this.nextDy = dy;
+    // Validate against the last *pending* heading (end of queue), not the
+    // committed one — otherwise a queued turn's follow-up would be judged
+    // against a direction we've already decided to leave.
+    const last = this.dirQueue.length
+      ? this.dirQueue[this.dirQueue.length - 1]
+      : { dx: this.nextDx, dy: this.nextDy };
+    if (dx === -last.dx && dy === -last.dy) return;  // can't reverse into the neck
+    if (dx === last.dx && dy === last.dy) return;    // no-op: same heading
+    if (this.dirQueue.length >= 2) return;           // cap the look-ahead at 2 turns
+    this.dirQueue.push({ dx, dy });
+    haptic(HAPTIC_TURN_MS);
+  }
+
+  // Steer relative to the current heading: turn = -1 (left) / +1 (right).
+  // Two-input scheme for one-thumb play — no absolute aiming, and reversing
+  // into yourself is impossible by construction. Routes through setDirection()
+  // so input buffering and reversal rules apply uniformly. Screen y is down, so
+  // a clockwise (right) turn maps (x,y) → (-y, x).
+  turnRelative(turn) {
+    if (!this.running || !this.snake) return;
+    let ref;
+    if (this.froggerMode) {
+      const seg = this.activeSegment();
+      if (!seg) return;
+      ref = { dx: seg.dir.x, dy: seg.dir.y };
+    } else {
+      ref = this.dirQueue.length
+        ? this.dirQueue[this.dirQueue.length - 1]
+        : { dx: this.nextDx, dy: this.nextDy };
+    }
+    const [nx, ny] = turn > 0 ? [-ref.dy, ref.dx] : [ref.dy, -ref.dx];
+    this.setDirection(nx, ny);
   }
 
   // Hide the one-time "swipe to move" coachmark (first touch input dismisses it).
@@ -302,6 +347,7 @@ class GooseScene extends Phaser.Scene {
 
     this.nextDx = 1;
     this.nextDy = 0;
+    this.dirQueue = [];
     this.queuedVertical = 0;
     this.queuedDodge    = { x: 0, y: 0 };
     this.invulnTicks = 0;
@@ -406,6 +452,12 @@ class GooseScene extends Phaser.Scene {
       s.dy = seg.dir.y + this.queuedDodge.y;
       this.queuedDodge = { x: 0, y: 0 };
     } else {
+      // Commit the next pre-loaded turn (if any), then apply the heading.
+      if (this.dirQueue.length) {
+        const d = this.dirQueue.shift();
+        this.nextDx = d.dx;
+        this.nextDy = d.dy;
+      }
       s.dx = this.nextDx;
       s.dy = this.nextDy;
     }
@@ -462,6 +514,7 @@ class GooseScene extends Phaser.Scene {
       const [food] = this.foods.splice(eaten, 1);
       food.sprite?.destroy();
       this.applyEffect(food.type);
+      haptic(HAPTIC_EAT_MS);
       this.snacksEaten++;
       scoreEl.textContent = this.score;
       this.renderEffectsBar();
@@ -1595,6 +1648,58 @@ startBtn.addEventListener('click', () => { if (gameScene) gameScene.startGame();
 const DPAD_VEC = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 if (IS_TOUCH) document.body.classList.add('touch');
 
+// ── Control scheme ─────────────────────────────────────────
+// Swipe steering is always live on the board; the scheme only chooses which
+// on-screen pad (if any) is shown. The chosen scheme is persisted and reflected
+// as a body class that CSS keys off:
+//   swipe       → no pad (swipe only)
+//   horizontal  → single-row pad (default; the original touch layout)
+//   traditional → classic cross/+ pad
+//   relative    → two-button turn-left/turn-right pad (heading-relative)
+const CONTROL_SCHEMES = ['swipe', 'horizontal', 'traditional', 'relative'];
+const CONTROLS_KEY = 'gooseControls';
+
+function applyControlScheme(scheme) {
+  if (!CONTROL_SCHEMES.includes(scheme)) scheme = 'horizontal';
+  try { localStorage.setItem(CONTROLS_KEY, scheme); } catch (e) { /* private mode */ }
+  for (const s of CONTROL_SCHEMES) document.body.classList.toggle(`controls-${s}`, s === scheme);
+  // Reflect the active choice in the picker, if present.
+  document.querySelectorAll('#controls-modal .controls-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.scheme === scheme);
+    card.setAttribute('aria-pressed', card.dataset.scheme === scheme ? 'true' : 'false');
+  });
+}
+
+function savedControlScheme() {
+  try { return localStorage.getItem(CONTROLS_KEY); } catch (e) { return null; }
+}
+
+// Capture whether a choice was previously saved *before* applying (which
+// persists the default), so the first-visit auto-show below fires correctly.
+const _hadSavedScheme = savedControlScheme();
+applyControlScheme(_hadSavedScheme || 'horizontal');
+
+// ── Control-picker modal ───────────────────────────────────
+// Auto-shows once on the first touch visit (no saved scheme yet) and is
+// reopenable anytime via the "Controls" button.
+const controlsModal = document.getElementById('controls-modal');
+const controlsBtn   = document.getElementById('controls-btn');
+const controlsDone  = document.getElementById('controls-done');
+
+function openControlsModal() { controlsModal?.classList.add('show'); }
+function closeControlsModal() { controlsModal?.classList.remove('show'); }
+
+controlsBtn?.addEventListener('click', openControlsModal);
+controlsDone?.addEventListener('click', closeControlsModal);
+controlsModal?.addEventListener('click', (e) => {
+  if (e.target === controlsModal) closeControlsModal();   // click backdrop to dismiss
+});
+document.querySelectorAll('#controls-modal .controls-card').forEach(card => {
+  card.addEventListener('click', () => applyControlScheme(card.dataset.scheme));
+});
+
+if (IS_TOUCH && !_hadSavedScheme) openControlsModal();
+
 document.querySelectorAll('#dpad .dpad-btn').forEach(btn => {
   const v = DPAD_VEC[btn.dataset.dir];
   if (!v) return;
@@ -1603,6 +1708,25 @@ document.querySelectorAll('#dpad .dpad-btn').forEach(btn => {
     btn.classList.add('active');
     if (window.gameScene) {
       gameScene.setDirection(v[0], v[1]);
+      gameScene.dismissSwipeHint();
+    }
+  };
+  const release = () => btn.classList.remove('active');
+  btn.addEventListener('pointerdown', press);
+  btn.addEventListener('pointerup', release);
+  btn.addEventListener('pointercancel', release);
+  btn.addEventListener('pointerleave', release);
+  btn.addEventListener('contextmenu', (e) => e.preventDefault());
+});
+
+// Relative pad: two buttons that turn left/right of the current heading.
+document.querySelectorAll('#dpad-relative .dpad-btn').forEach(btn => {
+  const turn = btn.dataset.turn === 'right' ? 1 : -1;
+  const press = (e) => {
+    e.preventDefault();
+    btn.classList.add('active');
+    if (window.gameScene) {
+      gameScene.turnRelative(turn);
       gameScene.dismissSwipeHint();
     }
   };

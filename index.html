@@ -81,6 +81,12 @@
       <button class="dpad-btn" data-dir="right" type="button" aria-label="Move right">▶</button>
     </div>
 
+    <!-- ── Relative pad: turn left/right of the current heading (one-thumb play) ── -->
+    <div id="dpad-relative" role="group" aria-label="Turn controls">
+      <button class="dpad-btn" data-turn="left"  type="button" aria-label="Turn left">↰</button>
+      <button class="dpad-btn" data-turn="right" type="button" aria-label="Turn right">↱</button>
+    </div>
+
     <div id="hud-row">
       <div id="score-display">Score: <span id="score">0</span></div>
       <div id="level-display">Level: <span id="level">1</span></div>
@@ -93,6 +99,7 @@
     <div id="action-row">
       <button id="start-btn">Start</button>
       <button id="focus-btn" type="button">⛶ Focus mode</button>
+      <button id="controls-btn" type="button">⚙ Controls</button>
     </div>
     <p id="controls-hint">Arrow keys or WASD &nbsp;·&nbsp; ` for dev console</p>
   </div>
@@ -189,6 +196,39 @@
       <ol id="endgame-list"></ol>
 
       <button id="endgame-play-again">Play Again</button>
+    </div>
+  </div>
+
+  <!-- ── Control-picker modal (touch) ── -->
+  <div id="controls-modal" role="dialog" aria-modal="true" aria-labelledby="controls-title">
+    <div class="controls-box">
+      <h2 id="controls-title">Choose your controls</h2>
+      <p class="controls-sub">Swiping on the board always works — pick the on-screen pad that feels best.</p>
+
+      <div class="controls-cards" role="group" aria-label="Control scheme">
+        <button class="controls-card" type="button" data-scheme="swipe" aria-pressed="false">
+          <span class="controls-card-icon">↑↓←→</span>
+          <span class="controls-card-name">Swipe only</span>
+          <span class="controls-card-desc">No buttons — swipe the board to steer.</span>
+        </button>
+        <button class="controls-card" type="button" data-scheme="horizontal" aria-pressed="false">
+          <span class="controls-card-icon">◀ ▲ ▼ ▶</span>
+          <span class="controls-card-name">Compact pad</span>
+          <span class="controls-card-desc">One slim row of arrows under the board.</span>
+        </button>
+        <button class="controls-card" type="button" data-scheme="traditional" aria-pressed="false">
+          <span class="controls-card-icon controls-card-icon-cross">▲<br>◀&nbsp;&nbsp;▶<br>▼</span>
+          <span class="controls-card-name">Classic D-pad</span>
+          <span class="controls-card-desc">Familiar cross layout for thumb control.</span>
+        </button>
+        <button class="controls-card" type="button" data-scheme="relative" aria-pressed="false">
+          <span class="controls-card-icon">↰ ↱</span>
+          <span class="controls-card-name">Turn buttons</span>
+          <span class="controls-card-desc">Two buttons — turn left or right as you go.</span>
+        </button>
+      </div>
+
+      <button id="controls-done" type="button">Done</button>
     </div>
   </div>
 

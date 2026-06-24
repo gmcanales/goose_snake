@@ -19,6 +19,11 @@ const DEFAULT_CONFIG = {
   // Tick speed (ms/tick) per level. Clamped to last entry beyond array length.
   levelSpeeds: [125, 125, 100, 90, 90],
 
+  // ms/tick multiplier applied to snake (GROW) mode on touch devices, where the
+  // smaller controls make the desktop pace feel too fast. 1.0 = desktop speed;
+  // 1.10 = 10% slower. Not applied in frogger/DODGE mode.
+  mobileSnakeSpeedFactor: 1.10,
+
   // Snake-mode level progression. 4 normal levels + 1 timed growth round (L5),
   // after which the game transitions to frogger (DODGE) mode.
   snacksPerLevel:        5,
