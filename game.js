@@ -375,6 +375,7 @@ class GooseScene extends Phaser.Scene {
     lenDispEl.classList.remove('show');
     distDispEl.classList.remove('show');
     timerDispEl.classList.remove('show');
+    document.getElementById('level-splash')?.classList.remove('show');
     ctrlHintEl.textContent = SNAKE_HINT;
     if (IS_TOUCH && swipeHintEl) swipeHintEl.classList.add('show');
     msgEl.textContent = '';
@@ -420,11 +421,43 @@ class GooseScene extends Phaser.Scene {
     void el.offsetWidth;          // force reflow → restart animation
     el.classList.add('show');
 
-    const SPLASH_MS = 1700;
+    this.pauseForSplash(1700);
+  }
+
+  // Animated "LEVEL N" transition between snake levels (2–4). Pauses gameplay
+  // for a beat — like the section splashes — so a level change reads as a
+  // deliberate transition, and surfaces any snacks newly unlocked at this level.
+  showLevelSplash(level) {
+    const el = document.getElementById('level-splash');
+    if (!el) return;
+    el.querySelector('.badge').textContent = 'LEVEL';
+    el.querySelector('.num').textContent = level;
+    el.querySelector('.sub').textContent = this.levelUnlockText(level);
+    el.classList.remove('show');
+    void el.offsetWidth;          // force reflow → restart animation
+    el.classList.add('show');
+    this.pauseForSplash(1200);
+  }
+
+  // Names of snacks that first become available at `level` (per snackMinLevel),
+  // as a short "X & Y unlocked" subtitle. Empty when nothing new unlocks here.
+  levelUnlockText(level) {
+    const NAMES = { bread: 'Bread', speed: 'Speed', slow: 'Slow', shrink: 'Shrink', star: 'Star' };
+    const minLvl = CONFIG.snackMinLevel || {};
+    const unlocked = Object.keys(minLvl)
+      .filter(t => minLvl[t] === level)
+      .map(t => NAMES[t] || t);
+    return unlocked.length ? `${unlocked.join(' & ')} unlocked` : '';
+  }
+
+  // Freeze gameplay for `ms` while a transition splash animates, then resume.
+  // Token-guarded (shared splashToken) so a fresh start — or a newer splash —
+  // cancels a stale resume. Re-staggers frogger spawn timestamps on resume so
+  // the queued-up traffic doesn't all fire the instant the pause lifts.
+  pauseForSplash(ms) {
     const token = ++this.splashToken;
     this.running = false;
-
-    this.time.delayedCall(SPLASH_MS, () => {
+    this.time.delayedCall(ms, () => {
       if (token !== this.splashToken || !this.snake) return;
       // Re-stagger frogger spawn timestamps so all 18 lanes don't fire at once
       // after the pause (real time advanced but enemies didn't move)
@@ -613,11 +646,7 @@ class GooseScene extends Phaser.Scene {
       return;
     }
 
-    msgEl.className = 'msg-level';
-    msgEl.textContent = `Level ${this.level}! 𓅬`;
-    this.time.delayedCall(1800, () => {
-      if (this.running && msgEl.className === 'msg-level') { msgEl.textContent = ''; msgEl.className = ''; }
-    });
+    this.showLevelSplash(this.level);
   }
 
   spawnLevelObstacles() {
